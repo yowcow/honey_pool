@@ -1,18 +1,53 @@
 -module(honey_pool).
 
 -export([
-         request/5,
+         get/1, get/2, get/3,
+         post/2, post/3, post/4,
+         request/5
+        ]).
+
+-export([
          checkout/3,
          checkin/1
         ]).
 
 -include_lib("kernel/include/logger.hrl").
 
+-define(USER_AGENT, "honey-pool/0.1").
 -define(WORKER, honey_pool_worker).
 
--type method() :: get | post.
+-define(METHOD_GET, <<"GET">>).
+-define(METHOD_POST, <<"POST">>).
+
+-type method() :: binary().
 -type url() :: string().
 -type status() :: integer().
+
+-type resp() :: {ok, {status(), gun:resp_headers(), binary() | no_data}} | {error, Reason::any()}.
+
+-spec get(Url::url()) -> resp().
+get(Url) ->
+    get(Url, []).
+
+-spec get(Url::url(), Headers::gun:req_headers()) -> resp().
+get(Url, Headers) ->
+    get(Url, Headers, #{}).
+
+-spec get(Url::url(), Headers::gun:req_headers(), Opts::gun:opts()) -> resp().
+get(Url, Headers, Opt) ->
+    request(?METHOD_GET, Url, Headers, <<>>, Opt).
+
+-spec post(Url::url(), Headers::gun:req_headers()) -> resp().
+post(Url, Headers) ->
+    post(Url, Headers, <<>>).
+
+-spec post(Url::url(), Headers::gun:req_headers(), Body::binary()) -> resp().
+post(Url, Headers, Body) ->
+    post(Url, Headers, Body, #{}).
+
+-spec post(Url::url(), Headers::gun:req_headers(), Body::binary(), Opts::gun:opts()) -> resp().
+post(Url, Headers, Body, Opt) ->
+    request(?METHOD_POST, Url, Headers, Body, Opt).
 
 -spec request(
         Method::method(),
@@ -20,9 +55,7 @@
         Headers::gun:req_headers(),
         Body::binary() | no_data,
         Opts::gun:opts()
-       ) ->
-    {ok, {status(), gun:resp_headers(), binary() | no_data}}
-    | {error, Reason::any()}.
+       ) -> resp().
 request(Method, Url, Headers, Body, Opts) ->
     U = parse_uri(Url),
     case checkout(
@@ -41,7 +74,8 @@ request(Method, Url, Headers, Body, Opts) ->
                        )
                   catch
                       _:Err ->
-                          {error, Err}
+                          checkin(Conn),
+                          throw({error, Err})
                   end,
             checkin(Conn),
             Ret
@@ -51,20 +85,22 @@ request(Method, Url, Headers, Body, Opts) ->
         Conn::pid(),
         Method::method(),
         Path::url(),
-        ReqHeaders::gun:req_headers(),
-        Body::binary() | no_body,
-        ReqOpts::gun:req_opts()
-       ) ->
-    {ok, {status(), gun:resp_headers(), binary() | no_data}}
-    | {error, Reason::any()}.
-do_request(Conn, get, Path, ReqHeaders, _, ReqOpts) ->
-    StreamRef = gun:get(Conn, Path, ReqHeaders, ReqOpts),
+        Headers::gun:req_headers(),
+        Body::iodata(),
+        Opts::gun:req_opts()
+       ) -> resp().
+do_request(Conn, Method, Path, Headers, Body, Opts) ->
+    ReqHeaders = [
+                  {<<"user-agent">>, ?USER_AGENT}
+                  | Headers
+                 ],
+    StreamRef = gun:request(Conn, Method, Path, ReqHeaders, Body, Opts),
     case gun:await(Conn, StreamRef) of
-        {response, fin, Status, Headers} ->
-            {ok, {Status, Headers, no_data}};
-        {response, nofin, Status, Headers} ->
-            {ok, Body} = gun:await_body(Conn, StreamRef),
-            {ok, {Status, Headers, Body}}
+        {response, fin, Status, RespHeaders} ->
+            {ok, {Status, RespHeaders, no_data}};
+        {response, nofin, Status, RespHeaders} ->
+            {ok, RespBody} = gun:await_body(Conn, StreamRef),
+            {ok, {Status, RespHeaders, RespBody}}
     end.
 
 -spec make_path(map()) -> string().
@@ -112,6 +148,7 @@ checkout(Host, Port, Opt) ->
 
 -spec checkin(pid()) -> ok.
 checkin(Conn) ->
+    gun:flush(Conn), %% flush before check-in
     wpool:cast(?WORKER, {checkin, Conn}).
 
 

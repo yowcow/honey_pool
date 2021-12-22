@@ -14,10 +14,14 @@
 -define(DEFAULT_OPTS, #{
                         retry => 0,
                         connect_timeout => 100,
+                        domain_lookup_timeout => 100,
+                        tls_handshake_timeout => 100,
                         http_opts => #{
+                                       closing_timeout => 100,
                                        keepalive => 60 * 1000 %% 60 sec
                                       },
                         http2_opts => #{
+                                        closing_timeout => 100,
                                         keepalive => 60 * 1000 %% 60 sec
                                        }
                        }).
@@ -61,7 +65,7 @@ handle_info({gun_up, Conn, Proto}, State) ->
     ?LOG_INFO("gun_up a conn: ~p (~p)", [Conn, Proto]),
     NextState = conn_up(Conn, {ok, Proto}, State),
     {noreply, NextState};
-handle_info({gun_down, Conn, _, _, _, _}, State) ->
+handle_info({gun_down, Conn, _, _, _}, State) ->
     ?LOG_INFO("gun_down a conn: ~p", [Conn]),
     NextState = conn_down(Conn, {error, gun_down}, State),
     {noreply, NextState};

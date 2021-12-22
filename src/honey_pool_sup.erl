@@ -35,7 +35,7 @@ init([]) ->
                   #{
                     id => honey_pool_workers,
                     start => {wpool, start_pool,
-                              [honey_pool_worker, [WpoolConfig ++
+                              [honey_pool_worker, WpoolConfig ++
                                                    [{workers, 1},
                                                     {overrun_warning, 300},
                                                     {worker, {honey_pool_worker, [GunOpt]}}
