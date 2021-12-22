@@ -44,38 +44,38 @@ init(Args) ->
            }}.
 
 handle_call({checkout, HostInfo}, {Requester, _}, State) ->
-    ?LOG_INFO("checkout a conn: ~p", [HostInfo]),
     {Ret, NextState} = conn_checkout(HostInfo, Requester, State),
+    ?LOG_INFO("(~p) checkout a conn: ~p -> ~p", [self(), HostInfo, Ret]),
     {reply, Ret, NextState};
 handle_call(state, _From, State) ->
     {reply, {ok, State}, State};
 handle_call(Req, From, State) ->
-    ?LOG_WARNING("unhandled call (~p, ~p, ~p)", [Req, From ,State]),
+    ?LOG_WARNING("(~p) unhandled call (~p, ~p, ~p)", [self(), Req, From ,State]),
     {reply, {error, no_handler}, State}.
 
 handle_cast({checkin, Conn}, State) ->
-    ?LOG_INFO("checkin a conn: ~p", [Conn]),
+    ?LOG_INFO("(~p) checkin a conn: ~p", [self(), Conn]),
     NextState = conn_checkin(Conn, State),
     {noreply, NextState};
 handle_cast(Req, State) ->
-    ?LOG_WARNING("unhandled cast (~p, ~p)", [Req, State]),
+    ?LOG_WARNING("(~p) unhandled cast (~p, ~p)", [self(), Req, State]),
     {noreply, State}.
 
 handle_info({gun_up, Conn, Proto}, State) ->
-    ?LOG_INFO("gun_up a conn: ~p (~p)", [Conn, Proto]),
+    ?LOG_INFO("(~p) gun_up a conn: ~p (~p)", [self(), Conn, Proto]),
     NextState = conn_up(Conn, {ok, Proto}, State),
     {noreply, NextState};
 handle_info({gun_down, Conn, _, _, _}, State) ->
-    ?LOG_INFO("gun_down a conn: ~p", [Conn]),
+    ?LOG_INFO("(~p) gun_down a conn: ~p", [self(), Conn]),
     NextState = conn_down(Conn, {error, gun_down}, State),
     {noreply, NextState};
 handle_info({'DOWN', MRef, _, Conn, Reason}, State) ->
-    ?LOG_INFO("conn has gone away: ~p (~p)", [Conn, Reason]),
+    ?LOG_INFO("(~p) conn has gone away: ~p (~p)", [self(), Conn, Reason]),
     demonitor(MRef),
     NextState = conn_down(Conn, {error, Reason}, State),
     {noreply, NextState};
 handle_info(Req, State) ->
-    ?LOG_WARNING("unhandled info (~p, ~p)", [Req, State]),
+    ?LOG_WARNING("(~p) unhandled info (~p, ~p)", [self(), Req, State]),
     {noreply, State}.
 
 
@@ -149,7 +149,7 @@ conn_checkin(Conn, State) ->
               host_conns = maps:put(HostInfo, NextConns, State#state.host_conns)
              };
         _ ->
-            ?LOG_WARNING("unknown conn has checked-in: ~p", [Conn]),
+            ?LOG_WARNING("(~p) unknown conn has checked-in: ~p", [self(), Conn]),
             State
     end.
 
@@ -172,7 +172,7 @@ conn_up(Conn, Msg, State) ->
               host_conns = maps:put(HostInfo, NextConns, State#state.host_conns)
              };
         _ ->
-            ?LOG_WARNING("unknown conn has gone up: ~p (~p)", [Conn, Msg]),
+            ?LOG_WARNING("(~p) unknown conn has gone up: ~p (~p)", [self(), Conn, Msg]),
             State
     end.
 
@@ -194,7 +194,7 @@ conn_down(Conn, Msg, State) ->
               conn_host = maps:remove(Conn, State#state.conn_host)
              };
         _ ->
-            ?LOG_WARNING("unknown conn has gone down: ~p", [Conn]),
+            ?LOG_WARNING("(~p) unknown conn has gone down: ~p", [self(), Conn]),
             State
     end.
 

@@ -227,7 +227,7 @@ gun_down_test_() ->
     Cases = [
              {
               "gun_down conn in in_use",
-              {gun_down, pid1, hoge, fuga, foo, bar},
+              {gun_down, pid1, hoge, fuga, foo},
               State,
               {noreply,
                State#state{
@@ -245,7 +245,7 @@ gun_down_test_() ->
              },
              {
               "close conn in available",
-              {gun_down, pid2, hoge, fuga, foo, bar},
+              {gun_down, pid2, hoge, fuga, foo},
               State,
               {noreply,
                State#state{
@@ -263,7 +263,7 @@ gun_down_test_() ->
              },
              {
               "conn not found in host_conns",
-              {gun_down, pid3, hoge, fuga, foo, bar},
+              {gun_down, pid3, hoge, fuga, foo},
               State#state{
                 conn_host = #{
                               pid3 => unknown_host
