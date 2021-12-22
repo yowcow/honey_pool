@@ -57,6 +57,9 @@ handle_cast({checkin, Conn}, State) ->
     ?LOG_INFO("(~p) checkin a conn: ~p", [self(), Conn]),
     NextState = conn_checkin(Conn, State),
     {noreply, NextState};
+handle_cast(state, State) ->
+    io:format("state: ~p~n", [State]),
+    {noreply, State};
 handle_cast(Req, State) ->
     ?LOG_WARNING("(~p) unhandled cast (~p, ~p)", [self(), Req, State]),
     {noreply, State}.
