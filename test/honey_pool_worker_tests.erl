@@ -7,8 +7,7 @@ checkout_test_() ->
     HostInfo = {"host", 123, #{}},
     State = #state{
                new_conn = fun(Host, Port, Opt) ->
-                                  {ok,
-                                   {pid, Host, Port, Opt}}
+                                  {ok, {pid, Host, Port, Opt}}
                           end
               },
     Cases = [
@@ -17,11 +16,11 @@ checkout_test_() ->
               {checkout, HostInfo},
               State,
               {reply,
-               {ok, {pid, "host", 123, #{}}},
+               {awaiting, {pid, "host", 123, #{}}},
                State#state{
                  host_conns = #{
                                 HostInfo => #connections{
-                                               in_use = [{pid, "host", 123, #{}}]
+                                               awaiting = [{{pid, "host", 123, #{}}, requester}]
                                               }
                                },
                  conn_host = #{
@@ -62,7 +61,7 @@ checkout_test_() ->
              }
             ],
     F = fun({Title, Req, State0, Expected}) ->
-                Actual = honey_pool_worker:handle_call(Req, from, State0),
+                Actual = honey_pool_worker:handle_call(Req, {requester, tag}, State0),
                 [{Title, ?_assertEqual(Expected, Actual)}]
         end,
     lists:map(F, Cases).
@@ -70,9 +69,6 @@ checkout_test_() ->
 checkin_test_() ->
     HostInfo = {"host", 123, #{}},
     State = #state{
-               new_conn = fun(Host, Port, Opt) ->
-                                  {pid, Host, Port, Opt}
-                          end,
                host_conns = #{
                               HostInfo => #connections{
                                              available = [pid2],
@@ -135,12 +131,88 @@ checkin_test_() ->
         end,
     lists:map(F, Cases).
 
-close_test_() ->
+receiver(Parent) ->
+    fun() ->
+            receive
+                bye ->
+                    Parent ! bye;
+                X ->
+                    Parent ! {got, X},
+                    F = receiver(Parent),
+                    F()
+            end
+    end.
+
+gun_up_test_() ->
+    {setup,
+     fun() ->
+             spawn(receiver(self()))
+     end,
+     fun(Pid) ->
+             Pid ! bye,
+             bye = receive X -> X end
+     end,
+     fun(Pid) ->
+             HostInfo = {"host", 123, #{}},
+             State = #state{
+                        host_conns = #{
+                                       HostInfo => #connections{
+                                                      available = [],
+                                                      in_use = [pid1],
+                                                      awaiting = [{pid2, Pid}]
+                                                     }
+                                      },
+                        conn_host = #{
+                                      pid1 => HostInfo,
+                                      pid2 => HostInfo
+                                     }
+                       },
+             Cases = [
+                      {
+                       "gun_up on awaiting conn",
+                       {gun_up, pid2, proto},
+                       State,
+                       fun(Title, Actual) ->
+                               Expected = {noreply,
+                                           State#state{
+                                             host_conns = #{
+                                                            HostInfo => #connections{
+                                                                           available = [],
+                                                                           in_use = [pid2, pid1],
+                                                                           awaiting = []
+                                                                          }
+                                                           }
+                                            }
+                                          },
+                               Ret = receive X -> X end,
+                               [
+                                {Title++": ret", ?_assertEqual(Expected, Actual)},
+                                {Title++": msg", ?_assertEqual({got, {ok, proto}}, Ret)}
+                               ]
+                       end
+                      },
+                      {
+                       "gun_up on unknown conn",
+                       {gun_up, pid3, proto},
+                       State,
+                       fun(Title, Actual) ->
+                               Expected = {noreply, State},
+                               [
+                                {Title, ?_assertEqual(Expected, Actual)}
+                               ]
+                       end
+                      }
+                     ],
+             F = fun({Title, Req, State0, Test}) ->
+                         Actual = honey_pool_worker:handle_info(Req, State0),
+                         Test(Title, Actual)
+                 end,
+             lists:map(F, Cases)
+     end}.
+
+gun_down_test_() ->
     HostInfo = {"host", 123, #{}},
     State = #state{
-               new_conn = fun(Host, Port, Opt) ->
-                                  {pid, Host, Port, Opt}
-                          end,
                host_conns = #{
                               HostInfo => #connections{
                                              available = [pid2],
@@ -154,7 +226,7 @@ close_test_() ->
               },
     Cases = [
              {
-              "close conn in in_use",
+              "gun_down conn in in_use",
               {gun_down, pid1, hoge, fuga, foo, bar},
               State,
               {noreply,

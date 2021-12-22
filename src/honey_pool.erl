@@ -17,13 +17,13 @@
 -spec request(
         Method::method(),
         Url::url(),
-        ReqHeaders::gun:req_headers(),
+        Headers::gun:req_headers(),
         Body::binary() | no_data,
-        ReqOpts::gun:req_opts()
+        Opts::gun:opts()
        ) ->
     {ok, {status(), gun:resp_headers(), binary() | no_data}}
     | {error, Reason::any()}.
-request(Method, Url, ReqHeaders, Body, ReqOpts) ->
+request(Method, Url, Headers, Body, Opts) ->
     U = parse_uri(Url),
     case checkout(
              maps:get(host, U),
@@ -35,9 +35,9 @@ request(Method, Url, ReqHeaders, Body, ReqOpts) ->
                         Conn,
                         Method,
                         make_path(U),
-                        ReqHeaders,
+                        Headers,
                         Body,
-                        ReqOpts
+                        Opts
                        )
                   catch
                       _:Err ->
@@ -100,7 +100,15 @@ parse_uri(Uri) ->
 
 -spec checkout(Host::string(), Port::integer(), Opt::map()) -> {ok, pid()}.
 checkout(Host, Port, Opt) ->
-    wpool:call(?WORKER, {checkout, {Host, Port, Opt}}).
+    case wpool:call(?WORKER, {checkout, {Host, Port, Opt}}) of
+        {ok, Conn} ->
+            {ok, Conn};
+        {awaiting, Conn} ->
+            receive X -> X end,
+            {ok, Conn};
+        Err ->
+            throw(Err)
+    end.
 
 -spec checkin(pid()) -> ok.
 checkin(Conn) ->

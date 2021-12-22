@@ -29,13 +29,17 @@ init([]) ->
     SupFlags = #{strategy => one_for_one,
                  intensity => 0,
                  period => 1},
+    WpoolConfig = application:get_env(honey_pool, wpool, []),
+    GunOpt = application:get_env(honey_pool, gun_opt, #{}),
     ChildSpecs = [
                   #{
                     id => honey_pool_workers,
                     start => {wpool, start_pool,
-                              [honey_pool_worker, [{workers, 10},
-                                                   {worker, {honey_pool_worker, []}}
-                                                  ]]
+                              [honey_pool_worker, [WpoolConfig ++
+                                                   [{workers, 1},
+                                                    {overrun_warning, 300},
+                                                    {worker, {honey_pool_worker, [GunOpt]}}
+                                                   ]]
                              },
                     restart => permanent,
                     type => worker

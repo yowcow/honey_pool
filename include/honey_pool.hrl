@@ -1,6 +1,7 @@
 -record(connections, {
           available = [] :: [pid()],
-          in_use = [] :: [pid()]
+          in_use = [] :: [pid()],
+          awaiting = [] :: [{pid(), pid()}]
          }).
 
 -record(state, {
