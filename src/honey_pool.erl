@@ -8,7 +8,7 @@
 
 -export([
          checkout/3,
-         checkin/1
+         checkin/2
         ]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -63,7 +63,7 @@ request(Method, Url, Headers, Body, Opts) ->
              maps:get(port, U),
              #{ transport => maps:get(transport, U) }
             ) of
-        {ok, Conn} ->
+        {ReturnTo, Conn} ->
             Ret = try do_request(
                         Conn,
                         Method,
@@ -74,10 +74,10 @@ request(Method, Url, Headers, Body, Opts) ->
                        )
                   catch
                       _:Err ->
-                          checkin(Conn),
+                          checkin(ReturnTo, Conn),
                           throw({error, Err})
                   end,
-            checkin(Conn),
+            checkin(ReturnTo, Conn),
             Ret
     end.
 
@@ -134,22 +134,23 @@ parse_uri(Uri) ->
                                      end)
      }.
 
--spec checkout(Host::string(), Port::integer(), Opt::map()) -> {ok, pid()}.
+-spec checkout(Host::string(), Port::integer(), Opt::map()) -> {pid(), {ok, pid()}}.
 checkout(Host, Port, Opt) ->
     case wpool:call(?WORKER, {checkout, {Host, Port, Opt}}) of
-        {ok, Conn} ->
-            {ok, Conn};
-        {awaiting, Conn} ->
+        {ReturnTo, {ok, Conn}} ->
+            {ReturnTo, Conn};
+        {ReturnTo, {awaiting, Conn}} ->
             receive X -> X end,
-            {ok, Conn};
+            {ReturnTo, Conn};
         Err ->
             throw(Err)
     end.
 
--spec checkin(pid()) -> ok.
-checkin(Conn) ->
+-spec checkin(pid(), pid()) -> ok.
+checkin(ReturnTo, Conn) ->
     gun:flush(Conn), %% flush before check-in
-    wpool:cast(?WORKER, {checkin, Conn}).
+    ReturnTo ! {checkin, Conn}.
+    %wpool:cast(?WORKER, {checkin, Conn}).
 
 
 -ifdef(TEST).

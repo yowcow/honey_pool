@@ -1,4 +1,3 @@
-{"1.2.0",
 [{<<"cowlib">>,
   {git,"https://github.com/ninenines/cowlib",
        {ref,"e9448e5628c8c1d9083223ff973af8de31a566d1"}},
@@ -7,10 +6,7 @@
   {git,"git://github.com/ninenines/gun.git",
        {ref,"f9175998687678e227bdd49669e2d83f0648fa57"}},
   0},
- {<<"worker_pool">>,{pkg,<<"worker_pool">>,<<"5.1.0">>},0}]}.
-[
-{pkg_hash,[
- {<<"worker_pool">>, <<"61BA970F856AF8B2D85232ADC8E4B990FA1719F396FCDAD954702946395ADD80">>}]},
-{pkg_hash_ext,[
- {<<"worker_pool">>, <<"59A975728E5C2B69A23D1C5EBC3B63251EC4ACBF4E9D25F1C619E3AD4B550813">>}]}
-].
+ {<<"worker_pool">>,
+  {git,"git://github.com/inaka/worker_pool.git",
+       {ref,"c3fa2d3d4d41e1eac777f322d3e55c126dce5021"}},
+  0}].

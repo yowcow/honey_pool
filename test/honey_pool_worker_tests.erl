@@ -16,7 +16,7 @@ checkout_test_() ->
               {checkout, HostInfo},
               State,
               {reply,
-               {awaiting, {pid, "host", 123, #{}}},
+               {self(), {awaiting, {pid, "host", 123, #{}}}},
                State#state{
                  host_conns = #{
                                 HostInfo => #connections{
@@ -44,7 +44,7 @@ checkout_test_() ->
                              }
                },
               {reply,
-               {ok, pid1},
+               {self(), {ok, pid1}},
                State#state{
                  host_conns = #{
                                 HostInfo => #connections{
@@ -126,7 +126,7 @@ checkin_test_() ->
              }
             ],
     F = fun({Title, Req, State0, Expected}) ->
-                Actual = honey_pool_worker:handle_cast(Req, State0),
+                Actual = honey_pool_worker:handle_info(Req, State0),
                 [{Title, ?_assertEqual(Expected, Actual)}]
         end,
     lists:map(F, Cases).
