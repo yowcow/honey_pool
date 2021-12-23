@@ -63,26 +63,18 @@ request(Method, Url, Headers, Body, Opts) ->
                         maps:get(port, U),
                         #{ transport => maps:get(transport, U) }
                        ),
-    {ok, {Status, _, _}}
-    = Ret = try do_request(
-                  Pid,
-                  Method,
-                  make_path(U),
-                  Headers,
-                  Body,
-                  Opts
-                 )
-            catch
-                _:Err ->
-                    checkin(ReturnTo, Pid),
-                    throw({error, Err})
-            end,
+    Ret = do_request(Pid, Method, make_path(U), Headers, Body, Opts),
+    case Ret of
+        {ok, {Status, _, _}} ->
+            ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, Status]);
+        Err ->
+            ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, Err])
+    end,
     checkin(ReturnTo, Pid),
-    ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, Status]),
     Ret.
 
 -spec do_request(
-        Conn::pid(),
+        Pid::pid(),
         Method::method(),
         Path::url(),
         Headers::gun:req_headers(),
@@ -96,18 +88,22 @@ do_request(Conn, Method, Path, Headers, Body, Opts) ->
     %% TODO: await timeout
     %%
     Resp = case gun:await(Conn, StreamRef) of
-        {response, fin, Status, RespHeaders} ->
-            {ok, {Status, RespHeaders, no_data}};
-        {response, nofin, 200, RespHeaders} ->
-            %%
-            %% TODO: await timeout
-            %%
-            {ok, RespBody} = gun:await_body(Conn, StreamRef),
-            {ok, {200, RespHeaders, RespBody}};
-        {response, nofin, Status, RespHeaders} ->
-            gun:cancel(Conn, StreamRef),
-            {ok, {Status, RespHeaders, no_data}}
-    end,
+               {response, fin, Status, RespHeaders} ->
+                   {ok, {Status, RespHeaders, no_data}};
+               {response, nofin, 200, RespHeaders} ->
+                   %%
+                   %% TODO: await timeout
+                   %%
+                   {ok, RespBody} = gun:await_body(Conn, StreamRef),
+                   {ok, {200, RespHeaders, RespBody}};
+               {response, nofin, Status, RespHeaders} ->
+                   gun:cancel(Conn, StreamRef),
+                   {ok, {Status, RespHeaders, no_data}};
+               {error, Reason} ->
+                   {error, Reason};
+               V ->
+                   {error, {unsupported, V}}
+           end,
     ?LOG_DEBUG("(~p) request: ~p, response: ~p",
                [Conn, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
