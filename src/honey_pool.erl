@@ -58,28 +58,28 @@ post(Url, Headers, Body, Opt) ->
        ) -> resp().
 request(Method, Url, Headers, Body, Opts) ->
     U = parse_uri(Url),
-    case checkout(
-             maps:get(host, U),
-             maps:get(port, U),
-             #{ transport => maps:get(transport, U) }
-            ) of
-        {ReturnTo, Conn} ->
-            Ret = try do_request(
-                        Conn,
-                        Method,
-                        make_path(U),
-                        Headers,
-                        Body,
-                        Opts
-                       )
-                  catch
-                      _:Err ->
-                          checkin(ReturnTo, Conn),
-                          throw({error, Err})
-                  end,
-            checkin(ReturnTo, Conn),
-            Ret
-    end.
+    {ReturnTo, Pid} = checkout(
+                        maps:get(host, U),
+                        maps:get(port, U),
+                        #{ transport => maps:get(transport, U) }
+                       ),
+    {ok, {Status, _, _}}
+    = Ret = try do_request(
+                  Pid,
+                  Method,
+                  make_path(U),
+                  Headers,
+                  Body,
+                  Opts
+                 )
+            catch
+                _:Err ->
+                    checkin(ReturnTo, Pid),
+                    throw({error, Err})
+            end,
+    checkin(ReturnTo, Pid),
+    ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, Status]),
+    Ret.
 
 -spec do_request(
         Conn::pid(),

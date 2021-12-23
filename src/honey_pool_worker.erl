@@ -73,7 +73,7 @@ handle_info({gun_down, Pid, _, _, _}, State) ->
     NextState = conn_down(Pid, {error, gun_down}, State),
     {noreply, NextState};
 handle_info({'DOWN', MRef, _, Pid, Reason}, State) ->
-    ?LOG_INFO("(~p) conn has gone away: ~p (~p)", [self(), Pid, Reason]),
+    ?LOG_WARNING("(~p) conn has gone away: ~p (~p)", [self(), Pid, Reason]),
     demonitor(MRef),
     NextState = conn_down(Pid, {error, Reason}, State),
     {noreply, NextState};
