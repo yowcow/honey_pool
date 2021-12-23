@@ -126,7 +126,11 @@ parse_uri(Uri) ->
         end,
     M#{
       host => maps:get(host, Parsed, ""),
-      path => maps:get(path, Parsed, "/"),
+      path => case maps:find(path, Parsed) of
+                  {ok, ""} -> "/";
+                  {ok, V} -> V;
+                  _ -> "/"
+              end,
       query => maps:get(query, Parsed, ""),
       port => maps:get(port, Parsed, case maps:get(transport, M) of
                                          tls -> 443;
@@ -140,7 +144,11 @@ checkout(Host, Port, Opt) ->
         {ReturnTo, {ok, Conn}} ->
             {ReturnTo, Conn};
         {ReturnTo, {awaiting, Conn}} ->
-            receive X -> X end,
+            %% TODO: await timeout
+            receive
+                X ->
+                    X
+            end,
             {ReturnTo, Conn};
         Err ->
             throw(Err)
@@ -162,7 +170,7 @@ parse_uri_test_() ->
               "http://foobar.com",
               #{
                 host => "foobar.com",
-                path => "",
+                path => "/",
                 query => "",
                 port => 80,
                 transport => tcp
