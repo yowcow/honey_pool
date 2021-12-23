@@ -45,7 +45,7 @@ init(Args) ->
 
 handle_call({checkout, HostInfo}, {Requester, _}, State) ->
     {Ret, NextState} = conn_checkout(HostInfo, Requester, State),
-    ?LOG_INFO("(~p) checkout a conn: ~p -> ~p", [self(), HostInfo, Ret]),
+    ?LOG_DEBUG("(~p) checkout a conn: ~p -> ~p", [self(), HostInfo, Ret]),
     {reply, {self(), Ret}, NextState};
 handle_call(state, _From, State) ->
     {reply, {ok, State}, State};
@@ -61,15 +61,15 @@ handle_cast(Req, State) ->
     {noreply, State}.
 
 handle_info({checkin, Pid}, State) ->
-    ?LOG_INFO("(~p) checkin a conn: ~p", [self(), Pid]),
+    ?LOG_DEBUG("(~p) checkin a conn: ~p", [self(), Pid]),
     NextState = conn_checkin(Pid, State),
     {noreply, NextState};
 handle_info({gun_up, Pid, Proto}, State) ->
-    ?LOG_INFO("(~p) gun_up a conn: ~p (~p)", [self(), Pid, Proto]),
+    ?LOG_DEBUG("(~p) gun_up a conn: ~p (~p)", [self(), Pid, Proto]),
     NextState = conn_up(Pid, {ok, Proto}, State),
     {noreply, NextState};
 handle_info({gun_down, Pid, _, _, _}, State) ->
-    ?LOG_INFO("(~p) gun_down a conn: ~p", [self(), Pid]),
+    ?LOG_DEBUG("(~p) gun_down a conn: ~p", [self(), Pid]),
     NextState = conn_down(Pid, {error, gun_down}, State),
     {noreply, NextState};
 handle_info({'DOWN', MRef, _, Pid, Reason}, State) ->
@@ -152,7 +152,7 @@ conn_checkin(Pid, State) ->
               host_conns = maps:put(HostInfo, NextConns, State#state.host_conns)
              };
         _ ->
-            ?LOG_INFO("(~p) unknown conn has checked-in: ~p", [self(), Pid]),
+            ?LOG_WARNING("(~p) unknown conn has checked-in: ~p", [self(), Pid]),
             State
     end.
 
@@ -181,7 +181,7 @@ conn_up(Pid, Msg, State) ->
               host_conns = maps:put(HostInfo, NextConns, State#state.host_conns)
              };
         _ ->
-            ?LOG_INFO("(~p) unknown conn has gone up: ~p (~p)", [self(), Pid, Msg]),
+            ?LOG_WARNING("(~p) unknown conn has gone up: ~p (~p)", [self(), Pid, Msg]),
             State
     end.
 
@@ -210,7 +210,7 @@ conn_down(Pid, Msg, State) ->
               conn_host = maps:remove(Pid, State#state.conn_host)
              };
         _ ->
-            ?LOG_INFO("(~p) unknown conn has gone down: ~p (~p)", [self(), Pid, Msg]),
+            ?LOG_WARNING("(~p) unknown conn has gone down: ~p (~p)", [self(), Pid, Msg]),
             State
     end.
 

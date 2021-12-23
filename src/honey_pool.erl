@@ -11,7 +11,7 @@
          checkin/2
         ]).
 
--include_lib("kernel/include/logger.hrl").
+%%-include_lib("kernel/include/logger.hrl").
 
 -define(USER_AGENT, "honey-pool/0.1").
 -define(WORKER, honey_pool_worker).
