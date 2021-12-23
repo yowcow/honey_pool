@@ -11,7 +11,7 @@
          checkin/2
         ]).
 
-%%-include_lib("kernel/include/logger.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -define(USER_AGENT, "honey-pool/0.1").
 -define(WORKER, honey_pool_worker).
@@ -94,6 +94,7 @@ do_request(Conn, Method, Path, Headers, Body, Opts) ->
                   {<<"user-agent">>, ?USER_AGENT}
                   | Headers
                  ],
+    ?LOG_DEBUG("(~p) ~p ~p ~p ~p ~p", [Conn, Method, Path, ReqHeaders, Body, Opts]),
     StreamRef = gun:request(Conn, Method, Path, ReqHeaders, Body, Opts),
     %%
     %% TODO: await timeout
