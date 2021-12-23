@@ -90,10 +90,7 @@ request(Method, Url, Headers, Body, Opts) ->
         Opts::gun:req_opts()
        ) -> resp().
 do_request(Conn, Method, Path, Headers, Body, Opts) ->
-    ReqHeaders = [
-                  {<<"user-agent">>, ?USER_AGENT}
-                  | Headers
-                 ],
+    ReqHeaders = headers(Headers),
     StreamRef = gun:request(Conn, Method, Path, ReqHeaders, Body, Opts),
     %%
     %% TODO: await timeout
@@ -171,6 +168,13 @@ checkout(Host, Port, Opt) ->
             throw(Err)
     end.
 
+-spec headers(gun:req_headers()) -> gun:req_headers().
+headers(Headers) ->
+    [
+     {<<"user-agent">>, ?USER_AGENT}
+     | [{string:lowercase(K), V} || {K, V} <- Headers]
+    ].
+
 -spec checkin(pid(), pid()) -> ok.
 checkin(ReturnTo, Conn) ->
     gun:flush(Conn), %% flush before check-in
@@ -179,6 +183,19 @@ checkin(ReturnTo, Conn) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+headers_test_() ->
+    Input = [
+             {<<"X-Hoge-Fuga">>, <<"Hoge">>},
+             {"X-Hoge-Fuga", <<"Hoge">>}
+            ],
+    Expected = [
+                {<<"user-agent">>, "honey-pool/0.1"},
+                {<<"x-hoge-fuga">>, <<"Hoge">>},
+                {"x-hoge-fuga", <<"Hoge">>}
+               ],
+    Actual = headers(Input),
+    [?_assertEqual(Expected, Actual)].
 
 parse_uri_test_() ->
     Cases = [
