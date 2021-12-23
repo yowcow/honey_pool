@@ -94,12 +94,11 @@ do_request(Conn, Method, Path, Headers, Body, Opts) ->
                   {<<"user-agent">>, ?USER_AGENT}
                   | Headers
                  ],
-    ?LOG_DEBUG("(~p) ~p ~p ~p ~p ~p", [Conn, Method, Path, ReqHeaders, Body, Opts]),
     StreamRef = gun:request(Conn, Method, Path, ReqHeaders, Body, Opts),
     %%
     %% TODO: await timeout
     %%
-    case gun:await(Conn, StreamRef) of
+    Resp = case gun:await(Conn, StreamRef) of
         {response, fin, Status, RespHeaders} ->
             {ok, {Status, RespHeaders, no_data}};
         {response, nofin, 200, RespHeaders} ->
@@ -111,7 +110,10 @@ do_request(Conn, Method, Path, Headers, Body, Opts) ->
         {response, nofin, Status, RespHeaders} ->
             gun:cancel(Conn, StreamRef),
             {ok, {Status, RespHeaders, no_data}}
-    end.
+    end,
+    ?LOG_DEBUG("(~p) request: ~p, response: ~p",
+               [Conn, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
+    Resp.
 
 -spec make_path(map()) -> string().
 make_path(UrlMap) ->
