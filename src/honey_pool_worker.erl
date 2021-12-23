@@ -18,11 +18,11 @@
                         tls_handshake_timeout => 100,
                         http_opts => #{
                                        closing_timeout => 100,
-                                       keepalive => 60 * 1000 %% 60 sec
+                                       keepalive => 30 * 1000 %% 30 sec
                                       },
                         http2_opts => #{
                                         closing_timeout => 100,
-                                        keepalive => 60 * 1000 %% 60 sec
+                                        keepalive => 30 * 1000 %% 30 sec
                                        }
                        }).
 
@@ -34,9 +34,9 @@ init(Args) ->
     {ok, #state{
             new_conn = fun(Host, Port, Opt) ->
                                case gun:open(Host, Port, maps:merge(ReqOpts, Opt)) of
-                                   {ok, Conn} ->
-                                       monitor(process, Conn),
-                                       {ok, Conn};
+                                   {ok, Pid} ->
+                                       MRef = monitor(process, Pid),
+                                       {ok, {Pid, MRef}};
                                    Err ->
                                        Err
                                end
@@ -60,22 +60,22 @@ handle_cast(Req, State) ->
     ?LOG_WARNING("(~p) unhandled cast (~p, ~p)", [self(), Req, State]),
     {noreply, State}.
 
-handle_info({checkin, Conn}, State) ->
-    ?LOG_INFO("(~p) checkin a conn: ~p", [self(), Conn]),
-    NextState = conn_checkin(Conn, State),
+handle_info({checkin, Pid}, State) ->
+    ?LOG_INFO("(~p) checkin a conn: ~p", [self(), Pid]),
+    NextState = conn_checkin(Pid, State),
     {noreply, NextState};
-handle_info({gun_up, Conn, Proto}, State) ->
-    ?LOG_INFO("(~p) gun_up a conn: ~p (~p)", [self(), Conn, Proto]),
-    NextState = conn_up(Conn, {ok, Proto}, State),
+handle_info({gun_up, Pid, Proto}, State) ->
+    ?LOG_INFO("(~p) gun_up a conn: ~p (~p)", [self(), Pid, Proto]),
+    NextState = conn_up(Pid, {ok, Proto}, State),
     {noreply, NextState};
-handle_info({gun_down, Conn, _, _, _}, State) ->
-    ?LOG_INFO("(~p) gun_down a conn: ~p", [self(), Conn]),
-    NextState = conn_down(Conn, {error, gun_down}, State),
+handle_info({gun_down, Pid, _, _, _}, State) ->
+    ?LOG_INFO("(~p) gun_down a conn: ~p", [self(), Pid]),
+    NextState = conn_down(Pid, {error, gun_down}, State),
     {noreply, NextState};
-handle_info({'DOWN', MRef, _, Conn, Reason}, State) ->
-    ?LOG_INFO("(~p) conn has gone away: ~p (~p)", [self(), Conn, Reason]),
+handle_info({'DOWN', MRef, _, Pid, Reason}, State) ->
+    ?LOG_INFO("(~p) conn has gone away: ~p (~p)", [self(), Pid, Reason]),
     demonitor(MRef),
-    NextState = conn_down(Conn, {error, Reason}, State),
+    NextState = conn_down(Pid, {error, Reason}, State),
     {noreply, NextState};
 handle_info(Req, State) ->
     ?LOG_WARNING("(~p) unhandled info (~p, ~p)", [self(), Req, State]),
@@ -124,8 +124,8 @@ conn_checkout_host_conns(
   NewConnFun
  ) ->
     case Conns#connections.available of
-        [Conn|_] ->
-            {{ok, Conn},
+        [{Pid, _} = Conn|_] ->
+            {{ok, Pid},
              Conns#connections{
                available = lists:delete(Conn, Conns#connections.available),
                in_use = [Conn | Conns#connections.in_use]
@@ -133,8 +133,8 @@ conn_checkout_host_conns(
         _ ->
             %% make a new conn since there's no conn available
             case NewConnFun(Host, Port, Opt) of
-                {ok, Conn} ->
-                    {{awaiting, Conn},
+                {ok, {Pid, _} = Conn} ->
+                    {{awaiting, Pid},
                      Conns#connections{
                        awaiting = [{Conn, Requester} | Conns#connections.awaiting]
                       }};
@@ -144,81 +144,172 @@ conn_checkout_host_conns(
     end.
 
 -spec conn_checkin(pid(), state()) -> state().
-conn_checkin(Conn, State) ->
-    case maps:find(Conn, State#state.conn_host) of
+conn_checkin(Pid, State) ->
+    case maps:find(Pid, State#state.conn_host) of
         {ok, HostInfo} ->
-            NextConns = conn_checkin_host_conns(Conn, maps:find(HostInfo, State#state.host_conns)),
+            NextConns = conn_checkin_host_conns(Pid, maps:find(HostInfo, State#state.host_conns)),
             State#state{
               host_conns = maps:put(HostInfo, NextConns, State#state.host_conns)
              };
         _ ->
-            ?LOG_INFO("(~p) unknown conn has checked-in: ~p", [self(), Conn]),
+            ?LOG_INFO("(~p) unknown conn has checked-in: ~p", [self(), Pid]),
             State
     end.
 
-conn_checkin_host_conns(Conn, {ok, Conns}) ->
-    Conns#connections{
-      available = [Conn | Conns#connections.available],
-      in_use = lists:delete(Conn, Conns#connections.in_use)
-     };
-conn_checkin_host_conns(Conn, _) ->
-    #connections{
-       available = [Conn]
-      }.
+conn_checkin_host_conns(Pid, {ok, Conns}) ->
+    case find_conn(Pid, Conns#connections.in_use) of
+        {{ok, Conn}, InUse} ->
+            Conns#connections{
+              available = [Conn | Conns#connections.available],
+              in_use = InUse
+             };
+        _ ->
+            ?LOG_WARNING("(~p) conn is not in use: ~p", [self(), Pid]),
+            Conns
+      end;
+conn_checkin_host_conns(Pid, _) ->
+    %% this pid has nowhere to go
+    gun:shutdown(Pid),
+    #connections{}.
 
 -spec conn_up(pid(), term(), state()) -> state().
-conn_up(Conn, Msg, State) ->
-    case maps:find(Conn, State#state.conn_host) of
+conn_up(Pid, Msg, State) ->
+    case maps:find(Pid, State#state.conn_host) of
         {ok, HostInfo} ->
-            NextConns = conn_up_host_conns(Conn, Msg, maps:find(HostInfo, State#state.host_conns)),
+            NextConns = conn_up_host_conns(Pid, Msg, maps:find(HostInfo, State#state.host_conns)),
             State#state{
               host_conns = maps:put(HostInfo, NextConns, State#state.host_conns)
              };
         _ ->
-            ?LOG_INFO("(~p) unknown conn has gone up: ~p (~p)", [self(), Conn, Msg]),
+            ?LOG_INFO("(~p) unknown conn has gone up: ~p (~p)", [self(), Pid, Msg]),
             State
     end.
 
-conn_up_host_conns(Conn, Msg, {ok, Conns}) ->
-    Conns#connections{
-      in_use = [Conn | Conns#connections.in_use],
-      awaiting = notify_and_filter_awaiting(Conn, Msg, Conns#connections.awaiting)
-     };
+conn_up_host_conns(Pid, Msg, {ok, Conns}) ->
+    case find_awaiting_conn(Pid, Conns#connections.awaiting) of
+        {{ok, {Conn, Requester}}, Awaiting} ->
+            Requester ! Msg,
+            Conns#connections{
+              in_use = [Conn | Conns#connections.in_use],
+              awaiting = Awaiting
+             };
+        _ ->
+            ?LOG_WARNING("(~p) conn is not awaiting: ~p (~p)", [self(), Pid, Msg]),
+            Conns
+    end;
 conn_up_host_conns(_, _, _) ->
     #connections{}.
 
 -spec conn_down(pid(), term(), state()) -> state().
-conn_down(Conn, Msg, State) ->
-    case maps:find(Conn, State#state.conn_host) of
+conn_down(Pid, Msg, State) ->
+    case maps:find(Pid, State#state.conn_host) of
         {ok, HostInfo} ->
-            NextConns = conn_down_host_conns(Conn, Msg, maps:find(HostInfo, State#state.host_conns)),
+            NextConns = conn_down_host_conns(Pid, Msg, maps:find(HostInfo, State#state.host_conns)),
             State#state{
               host_conns = maps:put(HostInfo, NextConns, State#state.host_conns),
-              conn_host = maps:remove(Conn, State#state.conn_host)
+              conn_host = maps:remove(Pid, State#state.conn_host)
              };
         _ ->
-            ?LOG_INFO("(~p) unknown conn has gone down: ~p (~p)", [self(), Conn, Msg]),
+            ?LOG_INFO("(~p) unknown conn has gone down: ~p (~p)", [self(), Pid, Msg]),
             State
     end.
 
-conn_down_host_conns(Conn, Msg, {ok, Conns}) ->
+conn_down_host_conns(Pid, Msg, {ok, Conns}) ->
+    Available = case find_conn(Pid, Conns#connections.available) of
+                    {{ok, {_, MRef1}}, Rem1} ->
+                        demonitor(MRef1, [flush]),
+                        Rem1;
+                    _ ->
+                        Conns#connections.available
+                end,
+    InUse = case find_conn(Pid, Conns#connections.in_use) of
+                {{ok, {_, MRef2}}, Rem2} ->
+                    demonitor(MRef2, [flush]),
+                    Rem2;
+                _ ->
+                    Conns#connections.in_use
+            end,
+    Awaiting = case find_awaiting_conn(Pid, Conns#connections.awaiting) of
+                   {{ok, {{_, MRef3}, Requester}}, Rem3} ->
+                       Requester ! Msg,
+                       demonitor(MRef3, [flush]),
+                       Rem3;
+                   _ ->
+                       Conns#connections.awaiting
+               end,
     Conns#connections{
-      available = lists:delete(Conn, Conns#connections.available),
-      in_use = lists:delete(Conn, Conns#connections.in_use),
-      awaiting = notify_and_filter_awaiting(Conn, Msg, Conns#connections.awaiting)
+      available = Available,
+      in_use = InUse,
+      awaiting = Awaiting
      };
 conn_down_host_conns(_, _, _) ->
     #connections{}.
 
 
--spec notify_and_filter_awaiting(pid(), term(), [{pid(), pid()}]) -> [{pid(), pid()}].
-notify_and_filter_awaiting(Conn, Msg, Awaiting) ->
-    notify_and_filter_awaiting(Conn, Msg, Awaiting, []).
+-spec find_conn(pid(), [conn()]) -> {{ok, conn()}, [conn()]} | {{error, term()}, [conn()]}.
+find_conn(Pid, Conns) ->
+    case lists:partition(fun({P, _}) -> P =:= Pid end, Conns) of
+        {[], _} ->
+            {{error, no_pid}, Conns};
+        {[Conn|_], Rem} ->
+            {{ok, Conn}, Rem}
+    end.
 
-notify_and_filter_awaiting(_, _, [], Acc) ->
-    Acc;
-notify_and_filter_awaiting(Conn, Msg, [{Conn, Requester}|T], Acc) ->
-    Requester ! Msg,
-    notify_and_filter_awaiting(Conn, Msg, T, Acc);
-notify_and_filter_awaiting(Conn, Msg, [H|T], Acc) ->
-    notify_and_filter_awaiting(Conn, Msg, T, [H|Acc]).
+-spec find_awaiting_conn(pid(), [awaiting_conn()]) ->
+    {{ok, awaiting_conn()}, [awaiting_conn()]}
+    | {{error, term()}, [awaiting_conn()]}.
+find_awaiting_conn(Pid, AwaitingConns) ->
+    case lists:partition(fun({{P, _}, _}) -> P =:= Pid end, AwaitingConns) of
+        {[], _} ->
+            {{error, no_awaiting_pid}, AwaitingConns};
+        {[AwaitingConn|_], Rem} ->
+            {{ok, AwaitingConn}, Rem}
+    end.
+
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+find_conn_test_() ->
+    Conns = [{pid1, ref1}, {pid2, ref2}],
+    Cases = [
+             {
+              "no conn",
+              pid3,
+              {{error, no_pid}, Conns}
+             },
+             {
+              "with conn",
+              pid2,
+              {{ok, {pid2, ref2}}, [{pid1, ref1}]}
+             }
+            ],
+    F = fun({Title, Pid, Expected}) ->
+                Actual = find_conn(Pid, Conns),
+                [{Title, ?_assertEqual(Expected, Actual)}]
+        end,
+    lists:map(F, Cases).
+
+find_awaiting_conn_test_() ->
+    AwaitingConns = [
+                     {{pid1, ref1}, req1},
+                     {{pid2, ref2}, req2}],
+    Cases = [
+            {
+             "no conn",
+             pid3,
+             {{error, no_awaiting_pid}, AwaitingConns}
+            },
+            {
+             "with conn",
+             pid2,
+             {{ok, {{pid2, ref2}, req2}},
+              [{{pid1, ref1}, req1}]}
+            }
+           ],
+    F = fun({Title, Pid, Expected}) ->
+                Actual = find_awaiting_conn(Pid, AwaitingConns),
+                [{Title, ?_assertEqual(Expected, Actual)}]
+        end,
+    lists:map(F, Cases).
+-endif.

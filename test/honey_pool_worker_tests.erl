@@ -7,7 +7,10 @@ checkout_test_() ->
     HostInfo = {"host", 123, #{}},
     State = #state{
                new_conn = fun(Host, Port, Opt) ->
-                                  {ok, {pid, Host, Port, Opt}}
+                                  {ok, {
+                                     {pid, {Host, Port, Opt}},
+                                     ref
+                                    }}
                           end
               },
     Cases = [
@@ -16,15 +19,20 @@ checkout_test_() ->
               {checkout, HostInfo},
               State,
               {reply,
-               {self(), {awaiting, {pid, "host", 123, #{}}}},
+               {self(), {awaiting, {pid, HostInfo}}},
                State#state{
                  host_conns = #{
                                 HostInfo => #connections{
-                                               awaiting = [{{pid, "host", 123, #{}}, requester}]
+                                               awaiting = [
+                                                           {
+                                                            {{pid, HostInfo}, ref},
+                                                            requester
+                                                           }
+                                                          ]
                                               }
                                },
                  conn_host = #{
-                               {pid, "host", 123, #{}} => HostInfo
+                               {pid, HostInfo} => HostInfo
                               }
                 }
               }
@@ -35,7 +43,7 @@ checkout_test_() ->
               State#state{
                 host_conns = #{
                                HostInfo => #connections{
-                                              available = [pid1, pid2]
+                                              available = [{pid1, ref1}, {pid2, ref2}]
                                              }
                               },
                 conn_host = #{
@@ -48,8 +56,8 @@ checkout_test_() ->
                State#state{
                  host_conns = #{
                                 HostInfo => #connections{
-                                               available = [pid2],
-                                               in_use = [pid1]
+                                               available = [{pid2, ref2}],
+                                               in_use = [{pid1, ref1}]
                                               }
                                },
                  conn_host = #{
@@ -71,8 +79,8 @@ checkin_test_() ->
     State = #state{
                host_conns = #{
                               HostInfo => #connections{
-                                             available = [pid2],
-                                             in_use = [pid1]
+                                             available = [{pid2, ref2}],
+                                             in_use = [{pid1, ref1}]
                                             }
                              },
                conn_host = #{
@@ -89,7 +97,7 @@ checkin_test_() ->
                State#state{
                  host_conns = #{
                                 HostInfo => #connections{
-                                               available = [pid1, pid2],
+                                               available = [{pid1, ref1}, {pid2, ref2}],
                                                in_use = []
                                               }
                                }
@@ -117,8 +125,8 @@ checkin_test_() ->
                               },
                  host_conns = #{
                                 HostInfo => #connections{
-                                               available = [pid3, pid2],
-                                               in_use = [pid1]
+                                               available = [{pid2, ref2}],
+                                               in_use = [{pid1, ref1}]
                                               }
                                }
                 }
@@ -158,8 +166,8 @@ gun_up_test_() ->
                         host_conns = #{
                                        HostInfo => #connections{
                                                       available = [],
-                                                      in_use = [pid1],
-                                                      awaiting = [{pid2, Pid}]
+                                                      in_use = [{pid1, ref1}],
+                                                      awaiting = [{{pid2, ref2}, Pid}]
                                                      }
                                       },
                         conn_host = #{
@@ -178,7 +186,7 @@ gun_up_test_() ->
                                              host_conns = #{
                                                             HostInfo => #connections{
                                                                            available = [],
-                                                                           in_use = [pid2, pid1],
+                                                                           in_use = [{pid2, ref2}, {pid1, ref1}],
                                                                            awaiting = []
                                                                           }
                                                            }
@@ -211,80 +219,91 @@ gun_up_test_() ->
      end}.
 
 gun_down_test_() ->
-    HostInfo = {"host", 123, #{}},
-    State = #state{
-               host_conns = #{
-                              HostInfo => #connections{
-                                             available = [pid2],
-                                             in_use = [pid1]
-                                            }
-                             },
-               conn_host = #{
-                             pid1 => HostInfo,
-                             pid2 => HostInfo
-                            }
-              },
-    Cases = [
-             {
-              "gun_down conn in in_use",
-              {gun_down, pid1, hoge, fuga, foo},
-              State,
-              {noreply,
-               State#state{
-                 host_conns = #{
-                                HostInfo => #connections{
-                                               available = [pid2],
-                                               in_use = []
-                                              }
-                               },
-                 conn_host = #{
-                               pid2 => HostInfo
-                              }
-                }
-              }
-             },
-             {
-              "close conn in available",
-              {gun_down, pid2, hoge, fuga, foo},
-              State,
-              {noreply,
-               State#state{
-                 host_conns = #{
-                                HostInfo => #connections{
-                                               available = [],
-                                               in_use = [pid1]
-                                              }
-                               },
-                 conn_host = #{
-                               pid1 => HostInfo
-                              }
-                }
-              }
-             },
-             {
-              "conn not found in host_conns",
-              {gun_down, pid3, hoge, fuga, foo},
-              State#state{
-                conn_host = #{
-                              pid3 => unknown_host
-                             }
-               },
-              {noreply,
-               State#state{
-                 host_conns = #{
-                                HostInfo => #connections{
-                                               available = [pid2],
-                                               in_use = [pid1]
-                                              },
-                                unknown_host => #connections{}
-                               },
-                 conn_host = #{}
-                }
-              }
-             }
-            ],
-    F = fun({Title, Req, State0, Expected}) ->
-                Actual = honey_pool_worker:handle_info(Req, State0),
-                [{Title, ?_assertEqual(Expected, Actual)}]
-        end,
-    lists:map(F, Cases).
+    {setup,
+     fun() ->
+             spawn(receiver(self()))
+     end,
+     fun(Pid) ->
+             Pid ! bye,
+             bye = receive X -> X end
+     end,
+     fun(Pid) ->
+             MRef = monitor(process, Pid),
+             HostInfo = {"host", 123, #{}},
+             State = #state{
+                        host_conns = #{
+                                       HostInfo => #connections{
+                                                      available = [{pid2, MRef}],
+                                                      in_use = [{pid1, MRef}]
+                                                     }
+                                      },
+                        conn_host = #{
+                                      pid1 => HostInfo,
+                                      pid2 => HostInfo
+                                     }
+                       },
+             Cases = [
+                      {
+                       "gun_down conn in in_use",
+                       {gun_down, pid1, hoge, fuga, foo},
+                       State,
+                       {noreply,
+                        State#state{
+                          host_conns = #{
+                                         HostInfo => #connections{
+                                                        available = [{pid2, MRef}],
+                                                        in_use = []
+                                                       }
+                                        },
+                          conn_host = #{
+                                        pid2 => HostInfo
+                                       }
+                         }
+                       }
+                      },
+                      {
+                       "close conn in available",
+                       {gun_down, pid2, hoge, fuga, foo},
+                       State,
+                       {noreply,
+                        State#state{
+                          host_conns = #{
+                                         HostInfo => #connections{
+                                                        available = [],
+                                                        in_use = [{pid1, MRef}]
+                                                       }
+                                        },
+                          conn_host = #{
+                                        pid1 => HostInfo
+                                       }
+                         }
+                       }
+                      },
+                      {
+                       "conn not found in host_conns",
+                       {gun_down, pid3, hoge, fuga, foo},
+                       State#state{
+                         conn_host = #{
+                                       pid3 => unknown_host
+                                      }
+                        },
+                       {noreply,
+                        State#state{
+                          host_conns = #{
+                                         HostInfo => #connections{
+                                                        available = [{pid2, MRef}],
+                                                        in_use = [{pid1, MRef}]
+                                                       },
+                                         unknown_host => #connections{}
+                                        },
+                          conn_host = #{}
+                         }
+                       }
+                      }
+                     ],
+             F = fun({Title, Req, State0, Expected}) ->
+                         Actual = honey_pool_worker:handle_info(Req, State0),
+                         [{Title, ?_assertEqual(Expected, Actual)}]
+                 end,
+             lists:map(F, Cases)
+     end}.

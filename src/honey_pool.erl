@@ -95,12 +95,21 @@ do_request(Conn, Method, Path, Headers, Body, Opts) ->
                   | Headers
                  ],
     StreamRef = gun:request(Conn, Method, Path, ReqHeaders, Body, Opts),
+    %%
+    %% TODO: await timeout
+    %%
     case gun:await(Conn, StreamRef) of
         {response, fin, Status, RespHeaders} ->
             {ok, {Status, RespHeaders, no_data}};
-        {response, nofin, Status, RespHeaders} ->
+        {response, nofin, 200, RespHeaders} ->
+            %%
+            %% TODO: await timeout
+            %%
             {ok, RespBody} = gun:await_body(Conn, StreamRef),
-            {ok, {Status, RespHeaders, RespBody}}
+            {ok, {200, RespHeaders, RespBody}};
+        {response, nofin, Status, RespHeaders} ->
+            gun:cancel(Conn, StreamRef),
+            {ok, {Status, RespHeaders, no_data}}
     end.
 
 -spec make_path(map()) -> string().
@@ -144,10 +153,15 @@ checkout(Host, Port, Opt) ->
         {ReturnTo, {ok, Conn}} ->
             {ReturnTo, Conn};
         {ReturnTo, {awaiting, Conn}} ->
+            %%
             %% TODO: await timeout
+            %%
             receive
-                X ->
-                    X
+                {ok, X} ->
+                    X;
+                Err ->
+                    checkin(ReturnTo, Conn),
+                    throw(Err)
             end,
             {ReturnTo, Conn};
         Err ->
@@ -158,7 +172,6 @@ checkout(Host, Port, Opt) ->
 checkin(ReturnTo, Conn) ->
     gun:flush(Conn), %% flush before check-in
     ReturnTo ! {checkin, Conn}.
-    %wpool:cast(?WORKER, {checkin, Conn}).
 
 
 -ifdef(TEST).
