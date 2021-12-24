@@ -1,13 +1,13 @@
 -module(honey_pool).
 
 -export([
-         get/1, get/2, get/3,
-         post/2, post/3, post/4,
-         request/5
+         get/1, get/2, get/3, get/4,
+         post/2, post/3, post/4, post/5,
+         request/6
         ]).
 
 -export([
-         checkout/3,
+         checkout/4,
          checkin/2
         ]).
 
@@ -15,6 +15,7 @@
 
 -define(USER_AGENT, "honey-pool/0.1").
 -define(WORKER, honey_pool_worker).
+-define(DEFAULT_REQUEST_TIMEOUT, 1000). %% msec
 
 -define(METHOD_GET, <<"GET">>).
 -define(METHOD_POST, <<"POST">>).
@@ -33,9 +34,15 @@ get(Url) ->
 get(Url, Headers) ->
     get(Url, Headers, #{}).
 
--spec get(Url::url(), Headers::gun:req_headers(), Opts::gun:opts()) -> resp().
+-spec get(Url::url(), Headers::gun:req_headers(), Opts::gun:opts()|Timeout::integer()) -> resp().
+get(Url, Headers, Timeout) when is_integer(Timeout) ->
+    get(Url, Headers, #{}, Timeout);
 get(Url, Headers, Opt) ->
-    request(?METHOD_GET, Url, Headers, <<>>, Opt).
+    get(Url, Headers, Opt, ?DEFAULT_REQUEST_TIMEOUT).
+
+-spec get(Url::url(), Headers::gun:req_headers(), Opts::gun:opts(), Timeout::integer()) -> resp().
+get(Url, Headers, Opt, Timeout) ->
+    request(?METHOD_GET, Url, Headers, <<>>, Opt, Timeout).
 
 -spec post(Url::url(), Headers::gun:req_headers()) -> resp().
 post(Url, Headers) ->
@@ -45,33 +52,51 @@ post(Url, Headers) ->
 post(Url, Headers, Body) ->
     post(Url, Headers, Body, #{}).
 
--spec post(Url::url(), Headers::gun:req_headers(), Body::binary(), Opts::gun:opts()) -> resp().
+-spec post(Url::url(), Headers::gun:req_headers(), Body::binary(), Opts::gun:opts()|Timeout::integer()) -> resp().
+post(Url, Headers, Body, Timeout) when is_integer(Timeout) ->
+    post(Url, Headers, Body, #{}, Timeout);
 post(Url, Headers, Body, Opt) ->
-    request(?METHOD_POST, Url, Headers, Body, Opt).
+    post(Url, Headers, Body, Opt, ?DEFAULT_REQUEST_TIMEOUT).
+
+-spec post(Url::url(), Headers::gun:req_headers(), Body::binary(), Opts::gun:opts(), Timeout::integer()) -> resp().
+post(Url, Headers, Body, Opt, Timeout) ->
+    request(?METHOD_POST, Url, Headers, Body, Opt, Timeout).
 
 -spec request(
         Method::method(),
         Url::url(),
         Headers::gun:req_headers(),
         Body::binary() | no_data,
-        Opts::gun:opts()
+        Opts::gun:opts(),
+        Timeout0::integer()
        ) -> resp().
-request(Method, Url, Headers, Body, Opts) ->
+request(Method, Url, Headers, Body, Opts, Timeout0) ->
     U = parse_uri(Url),
-    {ReturnTo, Pid} = checkout(
-                        maps:get(host, U),
-                        maps:get(port, U),
-                        #{ transport => maps:get(transport, U) }
-                       ),
-    Ret = do_request(Pid, Method, make_path(U), Headers, Body, Opts),
-    case Ret of
-        {ok, {Status, _, _}} ->
-            ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, Status]);
-        Err ->
-            ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, Err])
-    end,
-    checkin(ReturnTo, Pid),
-    Ret.
+    Host = maps:get(host, U),
+    Port = maps:get(port, U),
+    T0 = os:timestamp(),
+    case checkout(Host, Port, #{transport => maps:get(transport, U)}, Timeout0) of
+        {ok, {ReturnTo, Pid}} ->
+            Ret = do_request(
+                    Pid,
+                    Method,
+                    make_path(U),
+                    Headers,
+                    Body,
+                    Opts,
+                    Timeout0 - timestamp_interval(T0)
+                   ),
+            case Ret of
+                {ok, {Status, _, _}} ->
+                    ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, Status]);
+                Err ->
+                    ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, Err])
+            end,
+            checkin(ReturnTo, Pid),
+            Ret;
+        {error, Reason} ->
+            {error, {checkout_error, Reason}}
+    end.
 
 -spec do_request(
         Pid::pid(),
@@ -79,33 +104,38 @@ request(Method, Url, Headers, Body, Opts) ->
         Path::url(),
         Headers::gun:req_headers(),
         Body::iodata(),
-        Opts::gun:req_opts()
+        Opts::gun:req_opts(),
+        Timeout0::integer()
        ) -> resp().
-do_request(Conn, Method, Path, Headers, Body, Opts) ->
+do_request(Pid, Method, Path, Headers, Body, Opts, Timeout0) ->
+    T0 = os:timestamp(),
     ReqHeaders = headers(Headers),
-    StreamRef = gun:request(Conn, Method, Path, ReqHeaders, Body, Opts),
-    %%
-    %% TODO: await timeout
-    %%
-    Resp = case gun:await(Conn, StreamRef) of
+    StreamRef = gun:request(Pid, Method, Path, ReqHeaders, Body, Opts),
+    Resp = case gun:await(Pid, StreamRef, Timeout0) of
                {response, fin, Status, RespHeaders} ->
                    {ok, {Status, RespHeaders, no_data}};
                {response, nofin, 200, RespHeaders} ->
-                   %%
-                   %% TODO: await timeout
-                   %%
-                   {ok, RespBody} = gun:await_body(Conn, StreamRef),
-                   {ok, {200, RespHeaders, RespBody}};
+                   case gun:await_body(
+                          Pid,
+                          StreamRef,
+                          Timeout0 - timestamp_interval(T0)
+                         ) of
+                       {ok, RespBody} ->
+                           {ok, {200, RespHeaders, RespBody}};
+                       Err ->
+                           Err
+                   end;
                {response, nofin, Status, RespHeaders} ->
-                   gun:cancel(Conn, StreamRef),
                    {ok, {Status, RespHeaders, no_data}};
                {error, Reason} ->
                    {error, Reason};
                V ->
                    {error, {unsupported, V}}
            end,
-    ?LOG_DEBUG("(~p) request: ~p, response: ~p",
-               [Conn, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
+    gun:flush(StreamRef),
+    gun:cancel(Pid, StreamRef),
+    ?LOG_DEBUG("(~p) conn: ~p, request: ~p, response: ~p",
+               [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
 
 -spec make_path(map()) -> string().
@@ -143,27 +173,6 @@ parse_uri(Uri) ->
                                      end)
      }.
 
--spec checkout(Host::string(), Port::integer(), Opt::map()) -> {pid(), {ok, pid()}}.
-checkout(Host, Port, Opt) ->
-    case wpool:call(?WORKER, {checkout, {Host, Port, Opt}}) of
-        {ReturnTo, {ok, Conn}} ->
-            {ReturnTo, Conn};
-        {ReturnTo, {awaiting, Conn}} ->
-            %%
-            %% TODO: await timeout
-            %%
-            receive
-                {ok, X} ->
-                    X;
-                Err ->
-                    checkin(ReturnTo, Conn),
-                    throw(Err)
-            end,
-            {ReturnTo, Conn};
-        Err ->
-            throw(Err)
-    end.
-
 -spec headers(gun:req_headers()) -> gun:req_headers().
 headers(Headers) ->
     [
@@ -171,14 +180,62 @@ headers(Headers) ->
      | [{string:lowercase(K), V} || {K, V} <- Headers]
     ].
 
--spec checkin(pid(), pid()) -> ok.
-checkin(ReturnTo, Conn) ->
-    gun:flush(Conn), %% flush before check-in
-    ReturnTo ! {checkin, Conn}.
+-spec timestamp_msec({Mega::integer(), Sec::integer(), Micro::integer()}) -> integer().
+timestamp_msec({Mega, Sec, Micro}) ->
+    (Mega*1_000_000 + Sec)*1_000 + round(Micro/1000).
+
+-spec timestamp_interval(T0::erlang:timestamp()) -> integer().
+timestamp_interval(T0) ->
+    timestamp_msec(os:timestamp()) - timestamp_msec(T0).
+
+-spec checkout(
+        Host::string(),
+        Port::integer(),
+        Opt::map(),
+        Timeout::integer()
+       ) -> {ok, {ReturnTo::pid(), Pid::pid()}} | {error, Reason::term()}.
+checkout(Host, Port, Opt, Timeout0) ->
+    T0 = os:timestamp(),
+    case wpool:call(?WORKER, {checkout, {Host, Port, Opt}}, available_worker, Timeout0) of
+        {ReturnTo, {ok, Pid}} ->
+            {ok, {ReturnTo, Pid}};
+        {ReturnTo, {awaiting, Pid}} ->
+            Timeout1 = Timeout0 - timestamp_interval(T0),
+            receive
+                {ok, _} ->
+                    {ok, {ReturnTo, Pid}};
+                Err ->
+                    gun:flush(Pid),
+                    Err
+            after
+                Timeout1 ->
+                    gun:flush(Pid),
+                    {error, await_timeout}
+            end
+    end.
+
+-spec checkin(ReturnTo::pid(), Pid::pid()) -> ok.
+checkin(ReturnTo, Pid) ->
+    gun:flush(Pid), %% flush before check-in
+    ReturnTo ! {checkin, Pid},
+    ok.
 
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+timestamp_msec_test_() ->
+    [
+     ?_assertEqual(1_000_001_002, timestamp_msec({1, 1, 2000}))
+    ].
+
+timestamp_interval_test_() ->
+    T0 = os:timestamp(),
+    timer:sleep(100),
+    Actual = timestamp_interval(T0),
+    [
+     ?_assert(Actual >= 100)
+    ].
 
 headers_test_() ->
     Input = [

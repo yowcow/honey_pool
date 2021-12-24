@@ -101,21 +101,16 @@ conn_checkout(HostInfo, Requester, State) ->
                          maps:get(HostInfo, State#state.host_conns, #connections{}),
                          State#state.new_conn
                         ),
-    NextState = case Ret of
-                    {ok, Conn} ->
-                        State#state{
-                          host_conns = maps:put(HostInfo, NextConns, State#state.host_conns),
-                          conn_host = maps:put(Conn, HostInfo, State#state.conn_host)
-                         };
-                    {awaiting, Conn} ->
-                        State#state{
-                          host_conns = maps:put(HostInfo, NextConns, State#state.host_conns),
-                          conn_host = maps:put(Conn, HostInfo, State#state.conn_host)
-                         };
-                    _ ->
-                        State
-                end,
-    {Ret, NextState}.
+    case Ret of
+        {ok, {_, Pid} = Result} ->
+            {Result,
+             State#state{
+               host_conns = maps:put(HostInfo, NextConns, State#state.host_conns),
+               conn_host = maps:put(Pid, HostInfo, State#state.conn_host)
+              }};
+        _ ->
+            {Ret, State}
+    end.
 
 conn_checkout_host_conns(
   {Host, Port, Opt},
@@ -125,19 +120,24 @@ conn_checkout_host_conns(
  ) ->
     case Conns#connections.available of
         [{Pid, _} = Conn|_] ->
-            {{ok, Pid},
+            {
+             {ok, {ok, Pid}},
              Conns#connections{
                available = lists:delete(Conn, Conns#connections.available),
                in_use = [Conn | Conns#connections.in_use]
-              }};
+              }
+            };
         _ ->
             %% make a new conn since there's no conn available
             case NewConnFun(Host, Port, Opt) of
                 {ok, {Pid, _} = Conn} ->
-                    {{awaiting, Pid},
+                    {
+                     {ok, {awaiting, Pid}},
                      Conns#connections{
-                       awaiting = [{Conn, Requester} | Conns#connections.awaiting]
-                      }};
+                       awaiting = [{Conn, Requester} | Conns#connections.awaiting],
+                       in_use = [Conn | Conns#connections.in_use]
+                      }
+                    };
                 Err ->
                     {Err, Conns}
             end
@@ -187,10 +187,9 @@ conn_up(Pid, Msg, State) ->
 
 conn_up_host_conns(Pid, Msg, {ok, Conns}) ->
     case find_awaiting_conn(Pid, Conns#connections.awaiting) of
-        {{ok, {Conn, Requester}}, Awaiting} ->
+        {{ok, {_, Requester}}, Awaiting} ->
             Requester ! Msg,
             Conns#connections{
-              in_use = [Conn | Conns#connections.in_use],
               awaiting = Awaiting
              };
         _ ->

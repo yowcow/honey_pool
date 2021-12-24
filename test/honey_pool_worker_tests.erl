@@ -28,7 +28,10 @@ checkout_test_() ->
                                                             {{pid, HostInfo}, ref},
                                                             requester
                                                            }
-                                                          ]
+                                                          ],
+                                               in_use = [
+                                                         {{pid, HostInfo}, ref}
+                                                        ]
                                               }
                                },
                  conn_host = #{
@@ -165,7 +168,7 @@ gun_up_test_() ->
              State = #state{
                         host_conns = #{
                                        HostInfo => #connections{
-                                                      available = [],
+                                                      available = [{pid2, ref2}],
                                                       in_use = [{pid1, ref1}],
                                                       awaiting = [{{pid2, ref2}, Pid}]
                                                      }
@@ -185,8 +188,8 @@ gun_up_test_() ->
                                            State#state{
                                              host_conns = #{
                                                             HostInfo => #connections{
-                                                                           available = [],
-                                                                           in_use = [{pid2, ref2}, {pid1, ref1}],
+                                                                           available = [{pid2, ref2}],
+                                                                           in_use = [{pid1, ref1}],
                                                                            awaiting = []
                                                                           }
                                                            }
