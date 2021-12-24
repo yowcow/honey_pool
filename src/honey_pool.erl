@@ -127,6 +127,9 @@ do_request(Pid, Method, Path, Headers, Body, Opts, Timeout0) ->
                    end;
                {response, nofin, Status, RespHeaders} ->
                    {ok, {Status, RespHeaders, no_data}};
+               {error,{stream_error,{stream_error,protocol_error,'Content-length header received in a 204 response. (RFC7230 3.3.2)'}}} ->
+                   %% some servers return content-length header
+                   {ok, {204, [], no_data}};
                {error, Reason} ->
                    {error, Reason};
                V ->
