@@ -71,31 +71,35 @@ post(Url, Headers, Body, Opt, Timeout) ->
         Timeout0::integer()
        ) -> resp().
 request(Method, Url, Headers, Body, Opts, Timeout0) ->
-    U = parse_uri(Url),
-    Host = maps:get(host, U),
-    Port = maps:get(port, U),
-    T0 = os:timestamp(),
-    case checkout(Host, Port, #{transport => maps:get(transport, U)}, Timeout0) of
-        {ok, {ReturnTo, Pid}} ->
-            Ret = do_request(
-                    Pid,
-                    Method,
-                    make_path(U),
-                    Headers,
-                    Body,
-                    Opts,
-                    Timeout0 - timestamp_interval(T0)
-                   ),
-            case Ret of
-                {ok, {Status, _, _}} ->
-                    ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, Status]);
-                Err ->
-                    ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, Err])
-            end,
-            checkin(ReturnTo, Pid),
-            Ret;
+    case parse_uri(Url) of
+        {ok, U} ->
+            Host = maps:get(host, U),
+            Port = maps:get(port, U),
+            T0 = os:timestamp(),
+            case checkout(Host, Port, #{transport => maps:get(transport, U)}, Timeout0) of
+                {ok, {ReturnTo, Pid}} ->
+                    Result = do_request(
+                               Pid,
+                               Method,
+                               make_path(U),
+                               Headers,
+                               Body,
+                               Opts,
+                               Timeout0 - timestamp_interval(T0)
+                              ),
+                    case Result of
+                        {ok, {Status, _, _}} ->
+                            ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, Status]);
+                        ReqErr ->
+                            ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, ReqErr])
+                    end,
+                    checkin(ReturnTo, Pid),
+                    Result;
+                {error, Reason} ->
+                    {error, {checkout_error, Reason}}
+            end;
         {error, Reason} ->
-            {error, {checkout_error, Reason}}
+            Reason
     end.
 
 -spec do_request(
@@ -155,26 +159,31 @@ make_path(UrlMap) ->
 parse_uri(Uri) when is_binary(Uri) ->
     parse_uri(binary_to_list(Uri));
 parse_uri(Uri) ->
-    Parsed = uri_string:parse(Uri),
-    M = case maps:find(scheme, Parsed) of
-            {ok, "https"} ->
-                #{ transport => tls };
-            _ ->
-                #{ transport => tcp }
-        end,
-    M#{
-      host => maps:get(host, Parsed, ""),
-      path => case maps:find(path, Parsed) of
-                  {ok, ""} -> "/";
-                  {ok, V} -> V;
-                  _ -> "/"
-              end,
-      query => maps:get(query, Parsed, ""),
-      port => maps:get(port, Parsed, case maps:get(transport, M) of
-                                         tls -> 443;
-                                         _ -> 80
-                                     end)
-     }.
+    try
+        Parsed = uri_string:parse(Uri),
+        M = case maps:find(scheme, Parsed) of
+                {ok, "https"} ->
+                    #{ transport => tls };
+                _ ->
+                    #{ transport => tcp }
+            end,
+        {ok, M#{
+               host => maps:get(host, Parsed, ""),
+               path => case maps:find(path, Parsed) of
+                           {ok, ""} -> "/";
+                           {ok, V} -> V;
+                           _ -> "/"
+                       end,
+               query => maps:get(query, Parsed, ""),
+               port => maps:get(port, Parsed, case maps:get(transport, M) of
+                                                  tls -> 443;
+                                                  _ -> 80
+                                              end)
+              }}
+    catch
+        _:Err ->
+            {error, {Err, Uri}}
+    end.
 
 -spec headers(gun:req_headers()) -> gun:req_headers().
 headers(Headers) ->
@@ -257,48 +266,72 @@ parse_uri_test_() ->
     Cases = [
              {
               "http://foobar.com",
-              #{
-                host => "foobar.com",
-                path => "/",
-                query => "",
-                port => 80,
-                transport => tcp
-               }
+              fun(Actual) ->
+                      Expected = {ok,
+                                  #{
+                                    host => "foobar.com",
+                                    path => "/",
+                                    query => "",
+                                    port => 80,
+                                    transport => tcp
+                                   }},
+                      ?_assertEqual(Expected, Actual)
+              end
              },
              {
               "https://foobar.com/",
-              #{
-                host => "foobar.com",
-                path => "/",
-                query => "",
-                port => 443,
-                transport => tls
-               }
+              fun(Actual) ->
+                      Expected = {ok,
+                                  #{
+                                    host => "foobar.com",
+                                    path => "/",
+                                    query => "",
+                                    port => 443,
+                                    transport => tls
+                                   }},
+                      ?_assertEqual(Expected, Actual)
+              end
              },
              {
               "https://foobar.com:8443/hoge/fuga?foo=bar&bar=foo",
-              #{
-                host => "foobar.com",
-                path => "/hoge/fuga",
-                query => "foo=bar&bar=foo",
-                port => 8443,
-                transport => tls
-               }
+              fun(Actual) ->
+                      Expected = {ok,
+                                  #{
+                                    host => "foobar.com",
+                                    path => "/hoge/fuga",
+                                    query => "foo=bar&bar=foo",
+                                    port => 8443,
+                                    transport => tls
+                                   }},
+                      ?_assertEqual(Expected, Actual)
+              end
              },
              {
               <<"https://foobar.com:8443/hoge/fuga?foo=bar&bar=foo">>,
-              #{
-                host => "foobar.com",
-                path => "/hoge/fuga",
-                query => "foo=bar&bar=foo",
-                port => 8443,
-                transport => tls
-               }
+              fun(Actual) ->
+                      Expected = {ok, #{
+                                        host => "foobar.com",
+                                        path => "/hoge/fuga",
+                                        query => "foo=bar&bar=foo",
+                                        port => 8443,
+                                        transport => tls
+                                       }},
+                      ?_assertEqual(Expected, Actual)
+              end
+             },
+             {
+              <<"://hogehoge">>,
+              fun(Actual) ->
+                      ?_assertEqual({error,
+                                     {{badmap,
+                                       {error, invalid_uri, ":"}},
+                                       "://hogehoge"}}, Actual)
+              end
              }
             ],
-    F = fun({Input, Expected}) ->
+    F = fun({Input, Test}) ->
                 Actual = parse_uri(Input),
-                [{Input, ?_assertEqual(Expected, Actual)}]
+                [{Input, Test(Actual)}]
         end,
     lists:map(F, Cases).
 -endif.
