@@ -13,15 +13,11 @@
 
 -define(DEFAULT_OPTS, #{
                         retry => 0,
-                        connect_timeout => 100,
-                        domain_lookup_timeout => 100,
-                        tls_handshake_timeout => 100,
+                        connect_timeout => 1000,
                         http_opts => #{
-                                       closing_timeout => 100,
                                        keepalive => 30 * 1000 %% 30 sec
                                       },
                         http2_opts => #{
-                                        closing_timeout => 100,
                                         keepalive => 30 * 1000 %% 30 sec
                                        }
                        }).

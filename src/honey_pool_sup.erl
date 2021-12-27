@@ -30,7 +30,7 @@ init([]) ->
                  intensity => 0,
                  period => 1},
     WpoolConfig = application:get_env(honey_pool, wpool, []),
-    GunOpt = application:get_env(honey_pool, gun_opt, #{}),
+    GunOpt = application:get_env(honey_pool, gun_opts, #{}),
     ChildSpecs = [
                   #{
                     id => honey_pool_workers,
@@ -38,7 +38,7 @@ init([]) ->
                               [honey_pool_worker, WpoolConfig ++
                                                    [{workers, 2},
                                                     {overrun_warning, 300},
-                                                    {worker, {honey_pool_worker, [GunOpt]}}
+                                                    {worker, {honey_pool_worker, [{gun_opts, GunOpt}]}}
                                                    ]]
                              },
                     restart => permanent,

@@ -320,12 +320,12 @@ parse_uri_test_() ->
               end
              },
              {
-              <<"://hogehoge">>,
+              <<"http://hogehoge/?hoge={HOGE}">>,
               fun(Actual) ->
                       ?_assertEqual({error,
                                      {{badmap,
                                        {error, invalid_uri, ":"}},
-                                       "://hogehoge"}}, Actual)
+                                       "http://hogehoge/?hoge={HOGE}"}}, Actual)
               end
              }
             ],
