@@ -188,8 +188,8 @@ parse_uri(Uri) ->
 -spec headers(gun:req_headers()) -> gun:req_headers().
 headers(Headers) ->
     [
-     {<<"user-agent">>, ?USER_AGENT}
-     | [{string:lowercase(K), V} || {K, V} <- Headers]
+     {<<"User-Agent">>, ?USER_AGENT}
+     | Headers
     ].
 
 -spec timestamp_msec({Mega::integer(), Sec::integer(), Micro::integer()}) -> integer().
@@ -248,19 +248,6 @@ timestamp_interval_test_() ->
     [
      ?_assert(Actual >= 100)
     ].
-
-headers_test_() ->
-    Input = [
-             {<<"X-Hoge-Fuga">>, <<"Hoge">>},
-             {"X-Hoge-Fuga", <<"Hoge">>}
-            ],
-    Expected = [
-                {<<"user-agent">>, "honey-pool/0.1"},
-                {<<"x-hoge-fuga">>, <<"Hoge">>},
-                {"x-hoge-fuga", <<"Hoge">>}
-               ],
-    Actual = headers(Input),
-    [?_assertEqual(Expected, Actual)].
 
 parse_uri_test_() ->
     Cases = [
