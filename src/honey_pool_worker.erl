@@ -26,7 +26,7 @@
 %% gen_server funs
 %%
 init(Args) ->
-    ReqOpts = proplists:get_value(gun_opts, Args, ?DEFAULT_OPTS),
+    ReqOpts = maps:merge(?DEFAULT_OPTS, proplists:get_value(gun_opts, Args, #{})),
     {ok, #state{
             new_conn = fun(Host, Port, Opt) ->
                                case gun:open(Host, Port, maps:merge(ReqOpts, Opt)) of
