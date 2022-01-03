@@ -137,10 +137,10 @@ do_request(Pid, Method, Path, Headers, Body, Opts, Timeout0) ->
                {error, Reason} ->
                    {error, Reason};
                V ->
+                   gun:cancel(Pid, StreamRef),
                    {error, {unsupported, V}}
            end,
     gun:flush(StreamRef),
-    gun:cancel(Pid, StreamRef),
     ?LOG_DEBUG("(~p) conn: ~p, request: ~p, response: ~p",
                [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
