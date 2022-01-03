@@ -137,7 +137,11 @@ checkin_test_() ->
              }
             ],
     F = fun({Title, Req, State0, Expected}) ->
-                Actual = honey_pool_worker:handle_info(Req, State0),
+                error_logger:tty(false),
+                Actual = try honey_pool_worker:handle_info(Req, State0)
+                         after
+                             error_logger:tty(true)
+                         end,
                 [{Title, ?_assertEqual(Expected, Actual)}]
         end,
     lists:map(F, Cases).
@@ -215,7 +219,11 @@ gun_up_test_() ->
                       }
                      ],
              F = fun({Title, Req, State0, Test}) ->
-                         Actual = honey_pool_worker:handle_info(Req, State0),
+                         error_logger:tty(false),
+                         Actual = try honey_pool_worker:handle_info(Req, State0)
+                                  after
+                                      error_logger:tty(true)
+                                  end,
                          Test(Title, Actual)
                  end,
              lists:map(F, Cases)
