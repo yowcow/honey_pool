@@ -69,7 +69,7 @@ handle_info({gun_down, Pid, _, _, _}, State) ->
     NextState = conn_down(Pid, {error, gun_down}, State),
     {noreply, NextState};
 handle_info({'DOWN', MRef, _, Pid, Reason}, State) ->
-    ?LOG_WARNING("(~p) conn has gone away: ~p (~p)", [self(), Pid, Reason]),
+    ?LOG_DEBUG("(~p) conn has gone away: ~p (~p)", [self(), Pid, Reason]),
     demonitor(MRef),
     NextState = conn_down(Pid, {error, Reason}, State),
     {noreply, NextState};
@@ -148,7 +148,7 @@ conn_checkin(Pid, State) ->
               host_conns = maps:put(HostInfo, NextConns, State#state.host_conns)
              };
         _ ->
-            ?LOG_WARNING("(~p) unknown conn has checked-in: ~p", [self(), Pid]),
+            ?LOG_NOTICE("(~p) unknown conn has checked-in: ~p", [self(), Pid]),
             State
     end.
 
@@ -177,7 +177,7 @@ conn_up(Pid, Msg, State) ->
               host_conns = maps:put(HostInfo, NextConns, State#state.host_conns)
              };
         _ ->
-            ?LOG_WARNING("(~p) unknown conn has gone up: ~p (~p)", [self(), Pid, Msg]),
+            ?LOG_NOTICE("(~p) unknown conn has gone up: ~p (~p)", [self(), Pid, Msg]),
             State
     end.
 
@@ -205,7 +205,7 @@ conn_down(Pid, Msg, State) ->
               conn_host = maps:remove(Pid, State#state.conn_host)
              };
         _ ->
-            ?LOG_WARNING("(~p) unknown conn has gone down: ~p (~p)", [self(), Pid, Msg]),
+            ?LOG_NOTICE("(~p) unknown conn has gone down: ~p (~p)", [self(), Pid, Msg]),
             State
     end.
 
