@@ -13,6 +13,15 @@
 
 -include_lib("kernel/include/logger.hrl").
 
+-record(uri, {
+          host = "" :: string(),
+          path = "" :: string(),
+          query = "" :: string(),
+          pathquery = "" :: string(),
+          port = 80 :: integer(),
+          transport = tcp :: tcp | tls
+         }).
+
 -define(USER_AGENT, "honey-pool/0.1").
 -define(WORKER, honey_pool_worker).
 -define(DEFAULT_REQUEST_TIMEOUT, 1000). %% msec
@@ -22,6 +31,7 @@
 
 -type method() :: binary().
 -type url() :: string().
+-type uri() :: #uri{}.
 -type status() :: integer().
 
 -type resp() :: {ok, {status(), gun:resp_headers(), binary() | no_data}} | {error, Reason::any()}.
@@ -73,15 +83,18 @@ post(Url, Headers, Body, Opt, Timeout) ->
 request(Method, Url, Headers, Body, Opts, Timeout0) ->
     case parse_uri(Url) of
         {ok, U} ->
-            Host = maps:get(host, U),
-            Port = maps:get(port, U),
             T0 = os:timestamp(),
-            case checkout(Host, Port, #{transport => maps:get(transport, U)}, Timeout0) of
+            case checkout(
+                   U#uri.host,
+                   U#uri.port,
+                   #{transport => U#uri.transport},
+                   Timeout0
+                  ) of
                 {ok, {ReturnTo, Pid}} ->
                     Result = do_request(
                                Pid,
                                Method,
-                               make_path(U),
+                               U#uri.pathquery,
                                Headers,
                                Body,
                                Opts,
@@ -145,41 +158,37 @@ do_request(Pid, Method, Path, Headers, Body, Opts, Timeout0) ->
                [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
 
--spec make_path(map()) -> string().
-make_path(UrlMap) ->
-    Path = maps:get(path, UrlMap, "/"),
-    case maps:get(query, UrlMap, "") of
-        [] ->
-            Path;
-        Query ->
-            Path ++ "?" ++ Query
-    end.
-
--spec parse_uri(string() | binary()) -> map().
+-spec parse_uri(string() | binary()) -> uri().
 parse_uri(Uri) when is_binary(Uri) ->
     parse_uri(binary_to_list(Uri));
 parse_uri(Uri) ->
     try
         Parsed = uri_string:parse(Uri),
-        M = case maps:find(scheme, Parsed) of
-                {ok, "https"} ->
-                    #{ transport => tls };
-                _ ->
-                    #{ transport => tcp }
-            end,
-        {ok, M#{
-               host => maps:get(host, Parsed, ""),
-               path => case maps:find(path, Parsed) of
-                           {ok, ""} -> "/";
-                           {ok, V} -> V;
-                           _ -> "/"
-                       end,
-               query => maps:get(query, Parsed, ""),
-               port => maps:get(port, Parsed, case maps:get(transport, M) of
-                                                  tls -> 443;
-                                                  _ -> 80
-                                              end)
-              }}
+        Transport = case maps:find(scheme, Parsed) of
+                        {ok, "https"} -> tls;
+                        _ -> tcp
+                    end,
+        Path = case maps:find(path, Parsed) of
+                   {ok, ""} -> "/";
+                   {ok, V} -> V;
+                   _ -> "/"
+               end,
+        Query = maps:get(query, Parsed, ""),
+        Port = maps:get(port, Parsed, case Transport of
+                                          tls -> 443;
+                                          _ -> 80
+                                      end),
+        {ok, #uri{
+                host = maps:get(host, Parsed, ""),
+                path = Path,
+                query = Query,
+                pathquery = case Query of
+                                [] -> Path;
+                                _ -> [Path, "?", Query]
+                            end,
+                port = Port,
+                transport = Transport
+               }}
     catch
         _:Err ->
             {error, {Err, Uri}}
@@ -204,11 +213,11 @@ timestamp_interval(T0) ->
         Host::string(),
         Port::integer(),
         Opt::map(),
-        Timeout::integer()
+        Timeout0::integer()
        ) -> {ok, {ReturnTo::pid(), Pid::pid()}} | {error, Reason::term()}.
 checkout(Host, Port, Opt, Timeout0) ->
     T0 = os:timestamp(),
-    case wpool:call(?WORKER, {checkout, {Host, Port, Opt}}, available_worker, Timeout0) of
+    try wpool:call(?WORKER, {checkout, {Host, Port, Opt}}, available_worker, Timeout0) of
         {ReturnTo, {ok, Pid}} ->
             {ok, {ReturnTo, Pid}};
         {ReturnTo, {awaiting, Pid}} ->
@@ -224,6 +233,9 @@ checkout(Host, Port, Opt, Timeout0) ->
                     gun:flush(Pid),
                     {error, await_timeout}
             end
+    catch
+        _:Err ->
+            {error, Err}
     end.
 
 -spec checkin(ReturnTo::pid(), Pid::pid()) -> ok.
@@ -255,13 +267,14 @@ parse_uri_test_() ->
               "http://foobar.com",
               fun(Actual) ->
                       Expected = {ok,
-                                  #{
-                                    host => "foobar.com",
-                                    path => "/",
-                                    query => "",
-                                    port => 80,
-                                    transport => tcp
-                                   }},
+                                  #uri{
+                                     host = "foobar.com",
+                                     path = "/",
+                                     query = "",
+                                     pathquery = "/",
+                                     port = 80,
+                                     transport = tcp
+                                    }},
                       ?_assertEqual(Expected, Actual)
               end
              },
@@ -269,41 +282,48 @@ parse_uri_test_() ->
               "https://foobar.com/",
               fun(Actual) ->
                       Expected = {ok,
-                                  #{
-                                    host => "foobar.com",
-                                    path => "/",
-                                    query => "",
-                                    port => 443,
-                                    transport => tls
-                                   }},
+                                  #uri{
+                                     host = "foobar.com",
+                                     path = "/",
+                                     query = "",
+                                     pathquery = "/",
+                                     port = 443,
+                                     transport = tls
+                                    }},
                       ?_assertEqual(Expected, Actual)
               end
              },
              {
               "https://foobar.com:8443/hoge/fuga?foo=bar&bar=foo",
-              fun(Actual) ->
-                      Expected = {ok,
-                                  #{
-                                    host => "foobar.com",
-                                    path => "/hoge/fuga",
-                                    query => "foo=bar&bar=foo",
-                                    port => 8443,
-                                    transport => tls
-                                   }},
-                      ?_assertEqual(Expected, Actual)
+              fun({ok, Actual}) ->
+                      Expected = {ok, #uri{
+                                         host = "foobar.com",
+                                         path = "/hoge/fuga",
+                                         query = "foo=bar&bar=foo",
+                                         pathquery = "/hoge/fuga?foo=bar&bar=foo",
+                                         port = 8443,
+                                         transport = tls
+                                        }},
+                      Actual1 = Actual#uri{
+                                  pathquery = lists:flatten(Actual#uri.pathquery)
+                                 },
+                      ?_assertEqual(Expected, {ok, Actual1})
               end
              },
              {
               <<"https://foobar.com:8443/hoge/fuga?foo=bar&bar=foo">>,
-              fun(Actual) ->
-                      Expected = {ok, #{
-                                        host => "foobar.com",
-                                        path => "/hoge/fuga",
-                                        query => "foo=bar&bar=foo",
-                                        port => 8443,
-                                        transport => tls
+              fun({ok, Actual}) ->
+                      Expected = {ok, #uri{
+                                        host = "foobar.com",
+                                        path = "/hoge/fuga",
+                                        query = "foo=bar&bar=foo",
+                                        pathquery = "/hoge/fuga?foo=bar&bar=foo",
+                                        port = 8443,
+                                        transport = tls
                                        }},
-                      ?_assertEqual(Expected, Actual)
+                      ?_assertEqual(Expected, {ok, Actual#uri{
+                                                     pathquery = lists:flatten(Actual#uri.pathquery)
+                                                    }})
               end
              },
              {
