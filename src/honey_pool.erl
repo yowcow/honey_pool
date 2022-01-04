@@ -102,9 +102,9 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
                               ),
                     case Result of
                         {ok, {Status, _, _}} ->
-                            ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, Status]);
+                            ?LOG_INFO("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, Status]);
                         ReqErr ->
-                            ?LOG_INFO("(~p) ~p ~p -> ~p", [self(), Method, Url, ReqErr])
+                            ?LOG_INFO("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, ReqErr])
                     end,
                     checkin(ReturnTo, Pid),
                     Result;
@@ -144,8 +144,11 @@ do_request(Pid, Method, Path, Headers, Body, Opts, Timeout0) ->
                    end;
                {response, nofin, Status, RespHeaders} ->
                    {ok, {Status, RespHeaders, no_data}};
-               {error,{stream_error,{stream_error,protocol_error,'Content-length header received in a 204 response. (RFC7230 3.3.2)'}}} ->
-                   %% some servers return content-length header
+               {error,{stream_error,
+                       {stream_error,protocol_error,
+                        'Content-length header received in a 204 response. (RFC7230 3.3.2)'}
+                      }} ->
+                   %% there exist servers that return content-length header
                    {ok, {204, [], no_data}};
                {error, Reason} ->
                    {error, Reason};
@@ -227,10 +230,12 @@ checkout(Host, Port, Opt, Timeout0) ->
                     {ok, {ReturnTo, Pid}};
                 Err ->
                     gun:flush(Pid),
+                    gun:shutdown(Pid), %% conn has errored
                     Err
             after
                 Timeout1 ->
                     gun:flush(Pid),
+                    checkin(ReturnTo, Pid), %% maybe next time
                     {error, await_timeout}
             end
     catch
