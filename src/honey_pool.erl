@@ -98,7 +98,7 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
                                Headers,
                                Body,
                                Opts,
-                               Timeout0 - timestamp_interval(T0)
+                               next_timeout(Timeout0, timestamp_interval(T0))
                               ),
                     case Result of
                         {ok, {Status, _, _}} ->
@@ -135,7 +135,7 @@ do_request(Pid, Method, Path, Headers, Body, Opts, Timeout0) ->
                    case gun:await_body(
                           Pid,
                           StreamRef,
-                          Timeout0 - timestamp_interval(T0)
+                          next_timeout(Timeout0, timestamp_interval(T0))
                          ) of
                        {ok, RespBody} ->
                            {ok, {200, RespHeaders, RespBody}};
@@ -212,6 +212,15 @@ timestamp_msec({Mega, Sec, Micro}) ->
 timestamp_interval(T0) ->
     timestamp_msec(os:timestamp()) - timestamp_msec(T0).
 
+-spec next_timeout(Timeout0::integer(), Interval::integer()) -> integer().
+next_timeout(Timeout0, Interval) ->
+    case Timeout0 > Interval of
+        true ->
+            Timeout0 - Interval;
+        _ ->
+            0
+    end.
+
 -spec checkout(
         Host::string(),
         Port::integer(),
@@ -224,7 +233,7 @@ checkout(Host, Port, Opt, Timeout0) ->
         {ReturnTo, {ok, Pid}} ->
             {ok, {ReturnTo, Pid}};
         {ReturnTo, {awaiting, Pid}} ->
-            Timeout1 = Timeout0 - timestamp_interval(T0),
+            Timeout1 = next_timeout(Timeout0, timestamp_interval(T0)),
             receive
                 {ok, _} ->
                     {ok, {ReturnTo, Pid}};
