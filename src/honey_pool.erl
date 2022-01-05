@@ -112,7 +112,7 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
                     {error, {checkout_error, Reason}}
             end;
         {error, Reason} ->
-            Reason
+            {error, {url_error, Reason}}
     end.
 
 -spec do_request(
