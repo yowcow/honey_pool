@@ -229,9 +229,10 @@ checkout(Host, Port, Opt, Timeout0) ->
                 {ok, _} ->
                     {ok, {ReturnTo, Pid}};
                 Err ->
+                    %% received unexpected -> maybe next time
                     gun:flush(Pid),
-                    gun:shutdown(Pid), %% conn has errored
-                    Err
+                    checkin(ReturnTo, Pid),
+                    {error, Err}
             after
                 Timeout1 ->
                     gun:flush(Pid),
