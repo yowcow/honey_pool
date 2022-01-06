@@ -102,9 +102,9 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
                               ),
                     case Result of
                         {ok, {Status, _, _}} ->
-                            ?LOG_INFO("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, Status]);
+                            ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, Status]);
                         ReqErr ->
-                            ?LOG_INFO("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, ReqErr])
+                            ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, ReqErr])
                     end,
                     checkin(ReturnTo, Pid),
                     Result;
