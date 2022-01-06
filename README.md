@@ -1,3 +1,5 @@
+![master branch](https://github.com/yowcow/honey_pool/actions/workflows/ci.yml/badge.svg?branch=master)
+
 honey_pool
 =====
 
