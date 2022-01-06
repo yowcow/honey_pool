@@ -161,7 +161,7 @@ do_request(Pid, Method, Path, Headers, Body, Opts, Timeout0) ->
                [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
 
--spec parse_uri(string() | binary()) -> uri().
+-spec parse_uri(string() | binary()) -> {ok, uri()} | {error, term()}.
 parse_uri(Uri) when is_binary(Uri) ->
     parse_uri(binary_to_list(Uri));
 parse_uri(Uri) ->
@@ -244,8 +244,9 @@ checkout(Host, Port, Opt, Timeout0) ->
                     {error, Err}
             after
                 Timeout1 ->
+                    %% timeout exceeded -> maybe next time
                     gun:flush(Pid),
-                    checkin(ReturnTo, Pid), %% maybe next time
+                    checkin(ReturnTo, Pid),
                     {error, await_timeout}
             end
     catch
