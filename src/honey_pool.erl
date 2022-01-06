@@ -34,50 +34,54 @@
 -type uri() :: #uri{}.
 -type status() :: integer().
 
--type resp() :: {ok, {status(), gun:resp_headers(), binary() | no_data}} | {error, Reason::any()}.
+-type req_headers() :: gun:req_headers().
+-type resp_headers() :: gun:resp_headers().
+-type gun_opts() :: gun:opts().
+
+-type resp() :: {ok, {status(), resp_headers(), binary() | no_data}} | {error, Reason::any()}.
 
 -spec get(Url::url()) -> resp().
 get(Url) ->
     get(Url, []).
 
--spec get(Url::url(), Headers::gun:req_headers()) -> resp().
+-spec get(Url::url(), Headers::req_headers()) -> resp().
 get(Url, Headers) ->
     get(Url, Headers, #{}).
 
--spec get(Url::url(), Headers::gun:req_headers(), Opts::gun:opts()|Timeout::integer()) -> resp().
+-spec get(Url::url(), Headers::req_headers(), Opt::gun_opts()|integer()) -> resp().
 get(Url, Headers, Timeout) when is_integer(Timeout) ->
     get(Url, Headers, #{}, Timeout);
 get(Url, Headers, Opt) ->
     get(Url, Headers, Opt, ?DEFAULT_REQUEST_TIMEOUT).
 
--spec get(Url::url(), Headers::gun:req_headers(), Opts::gun:opts(), Timeout::integer()) -> resp().
+-spec get(Url::url(), Headers::req_headers(), Opts::gun_opts(), Timeout::integer()) -> resp().
 get(Url, Headers, Opt, Timeout) ->
     request(?METHOD_GET, Url, Headers, <<>>, Opt, Timeout).
 
--spec post(Url::url(), Headers::gun:req_headers()) -> resp().
+-spec post(Url::url(), Headers::req_headers()) -> resp().
 post(Url, Headers) ->
     post(Url, Headers, <<>>).
 
--spec post(Url::url(), Headers::gun:req_headers(), Body::binary()) -> resp().
+-spec post(Url::url(), Headers::req_headers(), Body::binary()) -> resp().
 post(Url, Headers, Body) ->
     post(Url, Headers, Body, #{}).
 
--spec post(Url::url(), Headers::gun:req_headers(), Body::binary(), Opts::gun:opts()|Timeout::integer()) -> resp().
+-spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts()|integer()) -> resp().
 post(Url, Headers, Body, Timeout) when is_integer(Timeout) ->
     post(Url, Headers, Body, #{}, Timeout);
 post(Url, Headers, Body, Opt) ->
     post(Url, Headers, Body, Opt, ?DEFAULT_REQUEST_TIMEOUT).
 
--spec post(Url::url(), Headers::gun:req_headers(), Body::binary(), Opts::gun:opts(), Timeout::integer()) -> resp().
+-spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts(), Timeout::integer()) -> resp().
 post(Url, Headers, Body, Opt, Timeout) ->
     request(?METHOD_POST, Url, Headers, Body, Opt, Timeout).
 
 -spec request(
         Method::method(),
         Url::url(),
-        Headers::gun:req_headers(),
+        Headers::req_headers(),
         Body::binary() | no_data,
-        Opts::gun:opts(),
+        Opts::gun_opts(),
         Timeout0::integer()
        ) -> resp().
 request(Method, Url, Headers, Body, Opts, Timeout0) ->
@@ -119,7 +123,7 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
         Pid::pid(),
         Method::method(),
         Path::url(),
-        Headers::gun:req_headers(),
+        Headers::req_headers(),
         Body::iodata(),
         Opts::gun:req_opts(),
         Timeout0::integer()
@@ -161,7 +165,7 @@ do_request(Pid, Method, Path, Headers, Body, Opts, Timeout0) ->
                [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
 
--spec parse_uri(string() | binary()) -> uri().
+-spec parse_uri(string() | binary()) -> {ok, uri()} | {error, term()}.
 parse_uri(Uri) when is_binary(Uri) ->
     parse_uri(binary_to_list(Uri));
 parse_uri(Uri) ->
@@ -197,7 +201,7 @@ parse_uri(Uri) ->
             {error, {Err, Uri}}
     end.
 
--spec headers(gun:req_headers()) -> gun:req_headers().
+-spec headers(req_headers()) -> req_headers().
 headers(Headers) ->
     [
      {<<"User-Agent">>, ?USER_AGENT}
@@ -206,7 +210,7 @@ headers(Headers) ->
 
 -spec timestamp_msec({Mega::integer(), Sec::integer(), Micro::integer()}) -> integer().
 timestamp_msec({Mega, Sec, Micro}) ->
-    (Mega*1_000_000 + Sec)*1_000 + round(Micro/1000).
+    (Mega*1000000 + Sec)*1000 + round(Micro/1000).
 
 -spec timestamp_interval(T0::erlang:timestamp()) -> integer().
 timestamp_interval(T0) ->
@@ -244,8 +248,9 @@ checkout(Host, Port, Opt, Timeout0) ->
                     {error, Err}
             after
                 Timeout1 ->
+                    %% timeout exceeded -> maybe next time
                     gun:flush(Pid),
-                    checkin(ReturnTo, Pid), %% maybe next time
+                    checkin(ReturnTo, Pid),
                     {error, await_timeout}
             end
     catch
@@ -265,7 +270,7 @@ checkin(ReturnTo, Pid) ->
 
 timestamp_msec_test_() ->
     [
-     ?_assertEqual(1_000_001_002, timestamp_msec({1, 1, 2000}))
+     ?_assertEqual(1000001002, timestamp_msec({1, 1, 2000}))
     ].
 
 timestamp_interval_test_() ->
