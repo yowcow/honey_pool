@@ -34,48 +34,51 @@
 -type uri() :: #uri{}.
 -type status() :: integer().
 
--type resp() :: {ok, {status(), gun:resp_headers(), binary() | no_data}} | {error, Reason::any()}.
+-type req_headers() :: gun:req_headers().
+-type resp_headers() :: gun:resp_headers().
+
+-type resp() :: {ok, {status(), resp_headers(), binary() | no_data}} | {error, Reason::any()}.
 
 -spec get(Url::url()) -> resp().
 get(Url) ->
     get(Url, []).
 
--spec get(Url::url(), Headers::gun:req_headers()) -> resp().
+-spec get(Url::url(), Headers::req_headers()) -> resp().
 get(Url, Headers) ->
     get(Url, Headers, #{}).
 
--spec get(Url::url(), Headers::gun:req_headers(), Opts::gun:opts()|Timeout::integer()) -> resp().
+-spec get(Url::url(), Headers::req_headers(), Opts::gun:opts()|Timeout::integer()) -> resp().
 get(Url, Headers, Timeout) when is_integer(Timeout) ->
     get(Url, Headers, #{}, Timeout);
 get(Url, Headers, Opt) ->
     get(Url, Headers, Opt, ?DEFAULT_REQUEST_TIMEOUT).
 
--spec get(Url::url(), Headers::gun:req_headers(), Opts::gun:opts(), Timeout::integer()) -> resp().
+-spec get(Url::url(), Headers::req_headers(), Opts::gun:opts(), Timeout::integer()) -> resp().
 get(Url, Headers, Opt, Timeout) ->
     request(?METHOD_GET, Url, Headers, <<>>, Opt, Timeout).
 
--spec post(Url::url(), Headers::gun:req_headers()) -> resp().
+-spec post(Url::url(), Headers::req_headers()) -> resp().
 post(Url, Headers) ->
     post(Url, Headers, <<>>).
 
--spec post(Url::url(), Headers::gun:req_headers(), Body::binary()) -> resp().
+-spec post(Url::url(), Headers::req_headers(), Body::binary()) -> resp().
 post(Url, Headers, Body) ->
     post(Url, Headers, Body, #{}).
 
--spec post(Url::url(), Headers::gun:req_headers(), Body::binary(), Opts::gun:opts()|Timeout::integer()) -> resp().
+-spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun:opts()|Timeout::integer()) -> resp().
 post(Url, Headers, Body, Timeout) when is_integer(Timeout) ->
     post(Url, Headers, Body, #{}, Timeout);
 post(Url, Headers, Body, Opt) ->
     post(Url, Headers, Body, Opt, ?DEFAULT_REQUEST_TIMEOUT).
 
--spec post(Url::url(), Headers::gun:req_headers(), Body::binary(), Opts::gun:opts(), Timeout::integer()) -> resp().
+-spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun:opts(), Timeout::integer()) -> resp().
 post(Url, Headers, Body, Opt, Timeout) ->
     request(?METHOD_POST, Url, Headers, Body, Opt, Timeout).
 
 -spec request(
         Method::method(),
         Url::url(),
-        Headers::gun:req_headers(),
+        Headers::req_headers(),
         Body::binary() | no_data,
         Opts::gun:opts(),
         Timeout0::integer()
@@ -119,7 +122,7 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
         Pid::pid(),
         Method::method(),
         Path::url(),
-        Headers::gun:req_headers(),
+        Headers::req_headers(),
         Body::iodata(),
         Opts::gun:req_opts(),
         Timeout0::integer()
@@ -197,7 +200,7 @@ parse_uri(Uri) ->
             {error, {Err, Uri}}
     end.
 
--spec headers(gun:req_headers()) -> gun:req_headers().
+-spec headers(req_headers()) -> req_headers().
 headers(Headers) ->
     [
      {<<"User-Agent">>, ?USER_AGENT}
