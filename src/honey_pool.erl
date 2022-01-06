@@ -36,6 +36,7 @@
 
 -type req_headers() :: gun:req_headers().
 -type resp_headers() :: gun:resp_headers().
+-type gun_opts() :: gun:opts().
 
 -type resp() :: {ok, {status(), resp_headers(), binary() | no_data}} | {error, Reason::any()}.
 
@@ -47,13 +48,13 @@ get(Url) ->
 get(Url, Headers) ->
     get(Url, Headers, #{}).
 
--spec get(Url::url(), Headers::req_headers(), Opts::gun:opts()|Timeout::integer()) -> resp().
+-spec get(Url::url(), Headers::req_headers(), Opts::gun_opts()|Timeout::integer()) -> resp().
 get(Url, Headers, Timeout) when is_integer(Timeout) ->
     get(Url, Headers, #{}, Timeout);
 get(Url, Headers, Opt) ->
     get(Url, Headers, Opt, ?DEFAULT_REQUEST_TIMEOUT).
 
--spec get(Url::url(), Headers::req_headers(), Opts::gun:opts(), Timeout::integer()) -> resp().
+-spec get(Url::url(), Headers::req_headers(), Opts::gun_opts(), Timeout::integer()) -> resp().
 get(Url, Headers, Opt, Timeout) ->
     request(?METHOD_GET, Url, Headers, <<>>, Opt, Timeout).
 
@@ -65,13 +66,13 @@ post(Url, Headers) ->
 post(Url, Headers, Body) ->
     post(Url, Headers, Body, #{}).
 
--spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun:opts()|Timeout::integer()) -> resp().
+-spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts()|Timeout::integer()) -> resp().
 post(Url, Headers, Body, Timeout) when is_integer(Timeout) ->
     post(Url, Headers, Body, #{}, Timeout);
 post(Url, Headers, Body, Opt) ->
     post(Url, Headers, Body, Opt, ?DEFAULT_REQUEST_TIMEOUT).
 
--spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun:opts(), Timeout::integer()) -> resp().
+-spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts(), Timeout::integer()) -> resp().
 post(Url, Headers, Body, Opt, Timeout) ->
     request(?METHOD_POST, Url, Headers, Body, Opt, Timeout).
 
@@ -80,7 +81,7 @@ post(Url, Headers, Body, Opt, Timeout) ->
         Url::url(),
         Headers::req_headers(),
         Body::binary() | no_data,
-        Opts::gun:opts(),
+        Opts::gun_opts(),
         Timeout0::integer()
        ) -> resp().
 request(Method, Url, Headers, Body, Opts, Timeout0) ->
