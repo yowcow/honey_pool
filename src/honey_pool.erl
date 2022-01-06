@@ -210,7 +210,7 @@ headers(Headers) ->
 
 -spec timestamp_msec({Mega::integer(), Sec::integer(), Micro::integer()}) -> integer().
 timestamp_msec({Mega, Sec, Micro}) ->
-    (Mega*1_000_000 + Sec)*1_000 + round(Micro/1000).
+    (Mega*1000000 + Sec)*1000 + round(Micro/1000).
 
 -spec timestamp_interval(T0::erlang:timestamp()) -> integer().
 timestamp_interval(T0) ->
@@ -270,7 +270,7 @@ checkin(ReturnTo, Pid) ->
 
 timestamp_msec_test_() ->
     [
-     ?_assertEqual(1_000_001_002, timestamp_msec({1, 1, 2000}))
+     ?_assertEqual(1000001002, timestamp_msec({1, 1, 2000}))
     ].
 
 timestamp_interval_test_() ->
