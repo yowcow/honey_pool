@@ -48,7 +48,7 @@ get(Url) ->
 get(Url, Headers) ->
     get(Url, Headers, #{}).
 
--spec get(Url::url(), Headers::req_headers(), Opts::gun_opts()|Timeout::integer()) -> resp().
+-spec get(Url::url(), Headers::req_headers(), Opt::gun_opts()|integer()) -> resp().
 get(Url, Headers, Timeout) when is_integer(Timeout) ->
     get(Url, Headers, #{}, Timeout);
 get(Url, Headers, Opt) ->
@@ -66,7 +66,7 @@ post(Url, Headers) ->
 post(Url, Headers, Body) ->
     post(Url, Headers, Body, #{}).
 
--spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts()|Timeout::integer()) -> resp().
+-spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts()|integer()) -> resp().
 post(Url, Headers, Body, Timeout) when is_integer(Timeout) ->
     post(Url, Headers, Body, #{}, Timeout);
 post(Url, Headers, Body, Opt) ->
