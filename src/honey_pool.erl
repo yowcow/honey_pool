@@ -106,7 +106,7 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
                               ),
                     case Result of
                         {ok, {Status, _, _}} ->
-                            ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, Status]);
+                            ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~.10b", [self(), Pid, Method, Url, Status]);
                         ReqErr ->
                             ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, ReqErr])
                     end,
