@@ -243,13 +243,11 @@ checkout(Host, Port, Opt, Timeout0) ->
                     {ok, {ReturnTo, Pid}};
                 Err ->
                     %% received unexpected -> maybe next time
-                    gun:flush(Pid),
                     checkin(ReturnTo, Pid),
                     {error, Err}
             after
                 Timeout1 ->
                     %% timeout exceeded -> maybe next time
-                    gun:flush(Pid),
                     checkin(ReturnTo, Pid),
                     {error, await_timeout}
             end
