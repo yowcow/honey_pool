@@ -1,12 +1,16 @@
+{"1.2.0",
 [{<<"cowlib">>,
   {git,"https://github.com/ninenines/cowlib",
        {ref,"e9448e5628c8c1d9083223ff973af8de31a566d1"}},
   1},
  {<<"gun">>,
-  {git,"git://github.com/yowcow/gun.git",
+  {git,"https://github.com/yowcow/gun.git",
        {ref,"14c0bf5eab48aa692642ed3b6982299cd1f57b14"}},
   0},
- {<<"worker_pool">>,
-  {git,"git://github.com/inaka/worker_pool.git",
-       {ref,"c3fa2d3d4d41e1eac777f322d3e55c126dce5021"}},
-  0}].
+ {<<"worker_pool">>,{pkg,<<"worker_pool">>,<<"6.0.0">>},0}]}.
+[
+{pkg_hash,[
+ {<<"worker_pool">>, <<"F7B442B30121EED6D8C828833533E5C15DB61E4AB2EF343C8B67824267656822">>}]},
+{pkg_hash_ext,[
+ {<<"worker_pool">>, <<"F9D95B85E80C5C27B7AB2E60BF780DA70A5E26DD9E6D30BE45032742FC039CC5">>}]}
+].
