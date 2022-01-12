@@ -48,15 +48,15 @@ get(Url) ->
 get(Url, Headers) ->
     get(Url, Headers, #{}).
 
--spec get(Url::url(), Headers::req_headers(), Opt::gun_opts()|integer()) -> resp().
-get(Url, Headers, Timeout) when is_integer(Timeout) ->
-    get(Url, Headers, #{}, Timeout);
-get(Url, Headers, Opt) ->
-    get(Url, Headers, Opt, ?DEFAULT_REQUEST_TIMEOUT).
+-spec get(Url::url(), Headers::req_headers(), Opts::gun_opts()|timeout()) -> resp().
+get(Url, Headers, Opts) when is_map(Opts) ->
+    get(Url, Headers, Opts, ?DEFAULT_REQUEST_TIMEOUT);
+get(Url, Headers, Timeout) ->
+    get(Url, Headers, #{}, Timeout).
 
--spec get(Url::url(), Headers::req_headers(), Opts::gun_opts(), Timeout::integer()) -> resp().
-get(Url, Headers, Opt, Timeout) ->
-    request(?METHOD_GET, Url, Headers, <<>>, Opt, Timeout).
+-spec get(Url::url(), Headers::req_headers(), Opts::gun_opts(), Timeout::timeout()) -> resp().
+get(Url, Headers, Opts, Timeout) ->
+    request(?METHOD_GET, Url, Headers, <<>>, Opts, Timeout).
 
 -spec post(Url::url(), Headers::req_headers()) -> resp().
 post(Url, Headers) ->
@@ -66,13 +66,13 @@ post(Url, Headers) ->
 post(Url, Headers, Body) ->
     post(Url, Headers, Body, #{}).
 
--spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts()|integer()) -> resp().
-post(Url, Headers, Body, Timeout) when is_integer(Timeout) ->
-    post(Url, Headers, Body, #{}, Timeout);
-post(Url, Headers, Body, Opt) ->
-    post(Url, Headers, Body, Opt, ?DEFAULT_REQUEST_TIMEOUT).
+-spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts()|timeout()) -> resp().
+post(Url, Headers, Body, Opts) when is_map(Opts) ->
+    post(Url, Headers, Body, Opts, ?DEFAULT_REQUEST_TIMEOUT);
+post(Url, Headers, Body, Timeout) ->
+    post(Url, Headers, Body, #{}, Timeout).
 
--spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts(), Timeout::integer()) -> resp().
+-spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts(), Timeout::timeout()) -> resp().
 post(Url, Headers, Body, Opt, Timeout) ->
     request(?METHOD_POST, Url, Headers, Body, Opt, Timeout).
 
@@ -82,18 +82,18 @@ post(Url, Headers, Body, Opt, Timeout) ->
         Headers::req_headers(),
         Body::binary() | no_data,
         Opts::gun_opts(),
-        Timeout0::integer()
+        Timeout0::timeout()
        ) -> resp().
 request(Method, Url, Headers, Body, Opts, Timeout0) ->
     case parse_uri(Url) of
         {ok, U} ->
-            T0 = os:timestamp(),
-            case checkout(
-                   U#uri.host,
-                   U#uri.port,
-                   #{transport => U#uri.transport},
-                   Timeout0
-                  ) of
+            {Elapsed, Checkout} = timer:tc(
+                                    fun checkout/4,
+                                    [U#uri.host,
+                                     U#uri.port,
+                                     #{transport => U#uri.transport},
+                                     Timeout0]),
+            case Checkout of
                 {ok, {ReturnTo, Pid}} ->
                     Result = do_request(
                                Pid,
@@ -102,8 +102,7 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
                                Headers,
                                Body,
                                Opts,
-                               next_timeout(Timeout0, timestamp_interval(T0))
-                              ),
+                               next_timeout(Timeout0, Elapsed)),
                     case Result of
                         {ok, {Status, _, _}} ->
                             ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~.10b", [self(), Pid, Method, Url, Status]);
@@ -126,37 +125,43 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
         Headers::req_headers(),
         Body::iodata(),
         Opts::gun:req_opts(),
-        Timeout0::integer()
+        Timeout0::timeout()
        ) -> resp().
 do_request(Pid, Method, Path, Headers, Body, Opts, Timeout0) ->
-    T0 = os:timestamp(),
+    %%T0 = os:timestamp(),
     ReqHeaders = headers(Headers),
     StreamRef = gun:request(Pid, Method, Path, ReqHeaders, Body, Opts),
-    Resp = case gun:await(Pid, StreamRef, Timeout0) of
-               {response, fin, Status, RespHeaders} ->
+    Resp = case timer:tc(
+                  fun gun:await/3,
+                  [Pid, StreamRef, Timeout0]) of
+               {_Elapsed,
+                {response, fin, Status, RespHeaders}} ->
                    {ok, {Status, RespHeaders, no_data}};
-               {response, nofin, 200, RespHeaders} ->
+               {Elapsed,
+                {response, nofin, 200, RespHeaders}} ->
                    case gun:await_body(
                           Pid,
                           StreamRef,
-                          next_timeout(Timeout0, timestamp_interval(T0))
-                         ) of
+                          next_timeout(Timeout0, Elapsed)) of
                        {ok, RespBody} ->
                            {ok, {200, RespHeaders, RespBody}};
                        Err ->
                            Err
                    end;
-               {response, nofin, Status, RespHeaders} ->
+               {_Elapsed,
+                {response, nofin, Status, RespHeaders}} ->
                    {ok, {Status, RespHeaders, no_data}};
-               {error,{stream_error,
-                       {stream_error,protocol_error,
-                        'Content-length header received in a 204 response. (RFC7230 3.3.2)'}
-                      }} ->
+               {_Elapsed,
+                {error,{stream_error,
+                        {stream_error,protocol_error,
+                         'Content-length header received in a 204 response. (RFC7230 3.3.2)'}
+                       }}} ->
                    %% there exist servers that return content-length header
                    {ok, {204, [], no_data}};
-               {error, Reason} ->
+               {_Elapsed,
+                {error, Reason}} ->
                    {error, Reason};
-               V ->
+               {_Elapsed, V} ->
                    gun:cancel(Pid, StreamRef),
                    {error, {unsupported, V}}
            end,
@@ -208,16 +213,11 @@ headers(Headers) ->
      | Headers
     ].
 
--spec timestamp_msec({Mega::integer(), Sec::integer(), Micro::integer()}) -> integer().
-timestamp_msec({Mega, Sec, Micro}) ->
-    (Mega*1000000 + Sec)*1000 + round(Micro/1000).
-
--spec timestamp_interval(T0::erlang:timestamp()) -> integer().
-timestamp_interval(T0) ->
-    timestamp_msec(os:timestamp()) - timestamp_msec(T0).
-
--spec next_timeout(Timeout0::integer(), Interval::integer()) -> integer().
-next_timeout(Timeout0, Interval) ->
+-spec next_timeout(Timeout0::timeout(), MicroSec::integer()) -> timeout().
+next_timeout(infinity, _) ->
+    infinity;
+next_timeout(Timeout0, MicroSec) ->
+    Interval = trunc(MicroSec/1000),
     case Timeout0 > Interval of
         true ->
             Timeout0 - Interval;
@@ -229,15 +229,19 @@ next_timeout(Timeout0, Interval) ->
         Host::string(),
         Port::integer(),
         Opt::map(),
-        Timeout0::integer()
+        Timeout0::timeout()
        ) -> {ok, {ReturnTo::pid(), Pid::pid()}} | {error, Reason::term()}.
 checkout(Host, Port, Opt, Timeout0) ->
-    T0 = os:timestamp(),
-    try wpool:call(?WORKER, {checkout, {Host, Port, Opt}}, available_worker, Timeout0) of
-        {ReturnTo, {ok, Pid}} ->
+    try timer:tc(
+          fun wpool:call/4,
+          [?WORKER,
+           {checkout, {Host, Port, Opt}},
+           available_worker,
+           Timeout0]) of
+        {_Elapsed, {ReturnTo, {ok, Pid}}} ->
             {ok, {ReturnTo, Pid}};
-        {ReturnTo, {awaiting, Pid}} ->
-            Timeout1 = next_timeout(Timeout0, timestamp_interval(T0)),
+        {Elapsed, {ReturnTo, {awaiting, Pid}}} ->
+            Timeout1 = next_timeout(Timeout0, Elapsed),
             receive
                 {ok, _} ->
                     {ok, {ReturnTo, Pid}};
@@ -265,19 +269,6 @@ checkin(ReturnTo, Pid) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
-
-timestamp_msec_test_() ->
-    [
-     ?_assertEqual(1000001002, timestamp_msec({1, 1, 2000}))
-    ].
-
-timestamp_interval_test_() ->
-    T0 = os:timestamp(),
-    timer:sleep(100),
-    Actual = timestamp_interval(T0),
-    [
-     ?_assert(Actual >= 100)
-    ].
 
 parse_uri_test_() ->
     Cases = [
