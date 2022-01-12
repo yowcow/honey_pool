@@ -128,7 +128,6 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
         Timeout0::timeout()
        ) -> resp().
 do_request(Pid, Method, Path, Headers, Body, Opts, Timeout0) ->
-    %%T0 = os:timestamp(),
     ReqHeaders = headers(Headers),
     StreamRef = gun:request(Pid, Method, Path, ReqHeaders, Body, Opts),
     Resp = case timer:tc(
