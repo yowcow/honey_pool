@@ -46,7 +46,8 @@ checkout_test_() ->
               State#state{
                 host_conns = #{
                                HostInfo => #connections{
-                                              available = [{pid1, ref1}, {pid2, ref2}]
+                                              available = [{{pid1, ref1}, no_ref},
+                                                           {{pid2, ref2}, no_ref}]
                                              }
                               },
                 conn_host = #{
@@ -59,7 +60,7 @@ checkout_test_() ->
                State#state{
                  host_conns = #{
                                 HostInfo => #connections{
-                                               available = [{pid2, ref2}],
+                                               available = [{{pid2, ref2}, no_ref}],
                                                in_use = [{pid1, ref1}]
                                               }
                                },
@@ -82,7 +83,7 @@ checkin_test_() ->
     State = #state{
                host_conns = #{
                               HostInfo => #connections{
-                                             available = [{pid2, ref2}],
+                                             available = [{{pid2, ref2}, no_ref}],
                                              in_use = [{pid1, ref1}]
                                             }
                              },
@@ -100,7 +101,8 @@ checkin_test_() ->
                State#state{
                  host_conns = #{
                                 HostInfo => #connections{
-                                               available = [{pid1, ref1}, {pid2, ref2}],
+                                               available = [{{pid1, ref1}, no_ref},
+                                                            {{pid2, ref2}, no_ref}],
                                                in_use = []
                                               }
                                }
@@ -128,7 +130,7 @@ checkin_test_() ->
                               },
                  host_conns = #{
                                 HostInfo => #connections{
-                                               available = [{pid2, ref2}],
+                                               available = [{{pid2, ref2}, no_ref}],
                                                in_use = [{pid1, ref1}]
                                               }
                                }
