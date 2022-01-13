@@ -30,7 +30,10 @@ checkout_test_() ->
                                                            }
                                                           ],
                                                in_use = [
-                                                         {{pid, HostInfo}, ref}
+                                                         {
+                                                          {{pid, HostInfo}, ref},
+                                                          no_ref
+                                                         }
                                                         ]
                                               }
                                },
@@ -61,7 +64,7 @@ checkout_test_() ->
                  host_conns = #{
                                 HostInfo => #connections{
                                                available = [{{pid2, ref2}, no_ref}],
-                                               in_use = [{pid1, ref1}]
+                                               in_use = [{{pid1, ref1}, no_ref}]
                                               }
                                },
                  conn_host = #{
@@ -84,7 +87,7 @@ checkin_test_() ->
                host_conns = #{
                               HostInfo => #connections{
                                              available = [{{pid2, ref2}, no_ref}],
-                                             in_use = [{pid1, ref1}]
+                                             in_use = [{{pid1, ref1}, no_ref}]
                                             }
                              },
                conn_host = #{
@@ -131,7 +134,7 @@ checkin_test_() ->
                  host_conns = #{
                                 HostInfo => #connections{
                                                available = [{{pid2, ref2}, no_ref}],
-                                               in_use = [{pid1, ref1}]
+                                               in_use = [{{pid1, ref1}, no_ref}]
                                               }
                                }
                 }
@@ -174,8 +177,8 @@ gun_up_test_() ->
              State = #state{
                         host_conns = #{
                                        HostInfo => #connections{
-                                                      available = [{pid2, ref2}],
-                                                      in_use = [{pid1, ref1}],
+                                                      available = [{{pid2, ref2}, no_ref}],
+                                                      in_use = [{{pid1, ref1}, no_ref}],
                                                       awaiting = [{{pid2, ref2}, Pid}]
                                                      }
                                       },
@@ -194,8 +197,8 @@ gun_up_test_() ->
                                            State#state{
                                              host_conns = #{
                                                             HostInfo => #connections{
-                                                                           available = [{pid2, ref2}],
-                                                                           in_use = [{pid1, ref1}],
+                                                                           available = [{{pid2, ref2}, no_ref}],
+                                                                           in_use = [{{pid1, ref1}, no_ref}],
                                                                            awaiting = []
                                                                           }
                                                            }
@@ -246,8 +249,8 @@ gun_down_test_() ->
              State = #state{
                         host_conns = #{
                                        HostInfo => #connections{
-                                                      available = [{pid2, MRef}],
-                                                      in_use = [{pid1, MRef}]
+                                                      available = [{{pid2, MRef}, no_ref}],
+                                                      in_use = [{{pid1, MRef}, no_ref}]
                                                      }
                                       },
                         conn_host = #{
@@ -264,7 +267,7 @@ gun_down_test_() ->
                         State#state{
                           host_conns = #{
                                          HostInfo => #connections{
-                                                        available = [{pid2, MRef}],
+                                                        available = [{{pid2, MRef}, no_ref}],
                                                         in_use = []
                                                        }
                                         },
@@ -283,7 +286,7 @@ gun_down_test_() ->
                           host_conns = #{
                                          HostInfo => #connections{
                                                         available = [],
-                                                        in_use = [{pid1, MRef}]
+                                                        in_use = [{{pid1, MRef}, no_ref}]
                                                        }
                                         },
                           conn_host = #{
@@ -304,8 +307,8 @@ gun_down_test_() ->
                         State#state{
                           host_conns = #{
                                          HostInfo => #connections{
-                                                        available = [{pid2, MRef}],
-                                                        in_use = [{pid1, MRef}]
+                                                        available = [{{pid2, MRef}, no_ref}],
+                                                        in_use = [{{pid1, MRef}, no_ref}]
                                                        },
                                          unknown_host => #connections{}
                                         },

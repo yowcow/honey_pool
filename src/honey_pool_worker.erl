@@ -101,7 +101,8 @@ conn_checkout(HostInfo, Requester, State) ->
                          HostInfo,
                          Requester,
                          maps:get(HostInfo, State#state.host_conns, #connections{}),
-                         State#state.new_conn
+                         State#state.new_conn,
+                         State#state.inactivity_timeout
                         ),
     case Ret of
         {ok, {_, Pid} = Result} ->
@@ -118,7 +119,8 @@ conn_checkout_host_conns(
   {Host, Port, Opt},
   Requester,
   Conns,
-  NewConnFun
+  NewConnFun,
+  Timeout
  ) ->
     case Conns#connections.available of
         [{{Pid, _} = Conn, TRef} = Available|_] ->
@@ -128,19 +130,39 @@ conn_checkout_host_conns(
                 _ ->
                     erlang:cancel_timer(TRef)
             end,
+            InUse = case Timeout of
+                        infinity ->
+                            {Conn, no_ref};
+                        _ ->
+                            {Conn, erlang:send_after(
+                                     Timeout,
+                                     self(),
+                                     {inactivity_timeout, Pid}
+                                    )}
+                    end,
             {{ok, {ok, Pid}},
              Conns#connections{
                available = lists:delete(Available, Conns#connections.available),
-               in_use = [Conn | Conns#connections.in_use]
+               in_use = [InUse|Conns#connections.in_use]
               }};
         _ ->
             %% make a new conn since there's no conn available
             case NewConnFun(Host, Port, Opt) of
                 {ok, {Pid, _} = Conn} ->
+                    InUse = case Timeout of
+                                infinity ->
+                                    {Conn, no_ref};
+                                _ ->
+                                    {Conn, erlang:send_after(
+                                             Timeout,
+                                             self(),
+                                             {inactivity_timeout, Pid}
+                                            )}
+                            end,
                     {{ok, {awaiting, Pid}},
                      Conns#connections{
-                       awaiting = [{Conn, Requester} | Conns#connections.awaiting],
-                       in_use = [Conn | Conns#connections.in_use]
+                       awaiting = [{Conn, Requester}|Conns#connections.awaiting],
+                       in_use = [InUse|Conns#connections.in_use]
                       }};
                 Err ->
                     {Err, Conns}
@@ -165,8 +187,14 @@ conn_checkin(Pid, State) ->
     end.
 
 conn_checkin_host_conns(Pid, {ok, Conns}, Timeout) ->
-    case find_conn(Pid, Conns#connections.in_use) of
-        {{ok, Conn}, InUse} ->
+    case find_active_conn(Pid, Conns#connections.in_use) of
+        {{ok, {Conn, TRef}}, InUse} ->
+            case TRef of
+                no_ref ->
+                    ok;
+                _ ->
+                    erlang:cancel_timer(TRef)
+            end,
             Available = case Timeout of
                             infinity ->
                                 {Conn, no_ref};
@@ -235,17 +263,28 @@ conn_down(Pid, Msg, State) ->
     end.
 
 conn_down_host_conns(Pid, Msg, {ok, Conns}) ->
-    Available = case find_available_conn(Pid, Conns#connections.available) of
+    Available = case find_active_conn(Pid, Conns#connections.available) of
                     {{ok, {{_, MRef1}, TRef1}}, Rem1} ->
                         demonitor(MRef1, [flush]),
-                        erlang:cancel_timer(TRef1),
+                        case TRef1 of
+                            no_ref ->
+                                ok;
+                            _ ->
+                                erlang:cancel_timer(TRef1)
+                        end,
                         Rem1;
                     _ ->
                         Conns#connections.available
                 end,
-    InUse = case find_conn(Pid, Conns#connections.in_use) of
-                {{ok, {_, MRef2}}, Rem2} ->
+    InUse = case find_active_conn(Pid, Conns#connections.in_use) of
+                {{ok, {{_, MRef2}, TRef2}}, Rem2} ->
                     demonitor(MRef2, [flush]),
+                    case TRef2 of
+                        no_ref ->
+                            ok;
+                        _ ->
+                            erlang:cancel_timer(TRef2)
+                    end,
                     Rem2;
                 _ ->
                     Conns#connections.in_use
@@ -266,25 +305,15 @@ conn_down_host_conns(Pid, Msg, {ok, Conns}) ->
 conn_down_host_conns(_, _, _) ->
     #connections{}.
 
-
--spec find_conn(pid(), [conn()]) -> {{ok, conn()}, [conn()]} | {{error, term()}, [conn()]}.
-find_conn(Pid, Conns) ->
-    case lists:partition(fun({P, _}) -> P =:= Pid end, Conns) of
+-spec find_active_conn(pid(), [active_conn()]) ->
+    {{ok, active_conn()}, [active_conn()]} |
+    {{error, term()}, [active_conn()]}.
+find_active_conn(Pid, ActiveConns) ->
+    case lists:partition(fun({{P, _}, _}) -> P =:= Pid end, ActiveConns) of
         {[], _} ->
-            {{error, no_pid}, Conns};
-        {[Conn|_], Rem} ->
-            {{ok, Conn}, Rem}
-    end.
-
--spec find_available_conn(pid(), [available_conn()]) ->
-    {{ok, available_conn()}, [available_conn()]} |
-    {{error, term()}, [available_conn()]}.
-find_available_conn(Pid, AvailableConns) ->
-    case lists:partition(fun({{P, _}, _}) -> P =:= Pid end, AvailableConns) of
-        {[], _} ->
-            {{error, no_available_pid}, AvailableConns};
-        {[AvailableConn|_], Rem} ->
-            {{ok, AvailableConn}, Rem}
+            {{error, no_active_conn}, ActiveConns};
+        {[ActiveConn|_], Rem} ->
+            {{ok, ActiveConn}, Rem}
     end.
 
 -spec find_awaiting_conn(pid(), [awaiting_conn()]) ->
@@ -302,22 +331,22 @@ find_awaiting_conn(Pid, AwaitingConns) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-find_conn_test_() ->
-    Conns = [{pid1, ref1}, {pid2, ref2}],
+find_active_conn_test_() ->
+    Conns = [{{pid1, ref1}, tref1}, {{pid2, ref2}, tref2}],
     Cases = [
              {
               "no conn",
               pid3,
-              {{error, no_pid}, Conns}
+              {{error, no_active_conn}, Conns}
              },
              {
               "with conn",
               pid2,
-              {{ok, {pid2, ref2}}, [{pid1, ref1}]}
+              {{ok, {{pid2, ref2}, tref2}}, [{{pid1, ref1}, tref1}]}
              }
             ],
     F = fun({Title, Pid, Expected}) ->
-                Actual = find_conn(Pid, Conns),
+                Actual = find_active_conn(Pid, Conns),
                 [{Title, ?_assertEqual(Expected, Actual)}]
         end,
     lists:map(F, Cases).

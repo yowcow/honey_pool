@@ -1,6 +1,6 @@
 -record(connections, {
-          available = [] :: [available_conn()],
-          in_use = [] :: [conn()],
+          available = [] :: [active_conn()],
+          in_use = [] :: [active_conn()],
           awaiting = [] :: [awaiting_conn()]
          }).
 
@@ -13,8 +13,8 @@
          }).
 
 -type conn() :: {pid(), reference()}.
+-type active_conn() :: {conn(), reference()|no_ref}.
 -type awaiting_conn() :: {conn(), pid()}.
--type available_conn() :: {conn(), reference()|no_ref}.
 
 -type hostinfo() :: {Host::string(), Port::integer(), Opt::map()}.
 -type connections() :: #connections{}.

@@ -44,9 +44,11 @@
 get(Url) ->
     get(Url, []).
 
--spec get(Url::url(), Headers::req_headers()) -> resp().
-get(Url, Headers) ->
-    get(Url, Headers, #{}).
+-spec get(Url::url(), Headers::req_headers()|timeout()) -> resp().
+get(Url, Headers) when is_list(Headers) ->
+    get(Url, Headers, #{});
+get(Url, Timeout) ->
+    get(Url, [], Timeout).
 
 -spec get(Url::url(), Headers::req_headers(), Opts::gun_opts()|timeout()) -> resp().
 get(Url, Headers, Opts) when is_map(Opts) ->
