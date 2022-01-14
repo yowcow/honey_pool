@@ -27,7 +27,6 @@
 %%
 init(Args) ->
     ReqOpts = maps:merge(?DEFAULT_OPTS, proplists:get_value(gun_opts, Args, #{})),
-    InactivityTimeout = proplists:get_value(inactivity_timeout, Args, infinity),
     {ok, #state{
             new_conn = fun(Host, Port, Opt) ->
                                case gun:open(Host, Port, maps:merge(ReqOpts, Opt)) of
@@ -38,7 +37,7 @@ init(Args) ->
                                        Err
                                end
                        end,
-            inactivity_timeout = InactivityTimeout
+            idle_timeout = proplists:get_value(idle_timeout, Args, infinity)
            }}.
 
 handle_call({checkout, HostInfo}, {Requester, _}, State) ->
@@ -58,8 +57,8 @@ handle_cast(Req, State) ->
     ?LOG_WARNING("(~p) unhandled cast (~p, ~p)", [self(), Req, State]),
     {noreply, State}.
 
-handle_info({inactivity_timeout, Pid}, State) ->
-    ?LOG_DEBUG("(~p) inactivity timeout: ~p", [self(), Pid]),
+handle_info({idle_timeout, Pid}, State) ->
+    ?LOG_DEBUG("(~p) idle timeout: ~p", [self(), Pid]),
     ok = gun:close(Pid),
     {noreply, State};
 handle_info({checkin, Pid}, State) ->
@@ -102,7 +101,7 @@ conn_checkout(HostInfo, Requester, State) ->
                          Requester,
                          maps:get(HostInfo, State#state.host_conns, #connections{}),
                          State#state.new_conn,
-                         State#state.inactivity_timeout
+                         State#state.idle_timeout
                         ),
     case Ret of
         {ok, {_, Pid} = Result} ->
@@ -137,7 +136,7 @@ conn_checkout_host_conns(
                             {Conn, erlang:send_after(
                                      Timeout,
                                      self(),
-                                     {inactivity_timeout, Pid}
+                                     {idle_timeout, Pid}
                                     )}
                     end,
             {{ok, {ok, Pid}},
@@ -156,7 +155,7 @@ conn_checkout_host_conns(
                                     {Conn, erlang:send_after(
                                              Timeout,
                                              self(),
-                                             {inactivity_timeout, Pid}
+                                             {idle_timeout, Pid}
                                             )}
                             end,
                     {{ok, {awaiting, Pid}},
@@ -176,7 +175,7 @@ conn_checkin(Pid, State) ->
             NextConns = conn_checkin_host_conns(
                           Pid,
                           maps:find(HostInfo, State#state.host_conns),
-                          State#state.inactivity_timeout
+                          State#state.idle_timeout
                          ),
             State#state{
               host_conns = maps:put(HostInfo, NextConns, State#state.host_conns)
@@ -202,7 +201,7 @@ conn_checkin_host_conns(Pid, {ok, Conns}, Timeout) ->
                                 {Conn, erlang:send_after(
                                          Timeout,
                                          self(),
-                                         {inactivity_timeout, Pid}
+                                         {idle_timeout, Pid}
                                         )}
                         end,
             Conns#connections{
@@ -212,7 +211,7 @@ conn_checkin_host_conns(Pid, {ok, Conns}, Timeout) ->
         _ ->
             ?LOG_WARNING("(~p) conn is not in use: ~p", [self(), Pid]),
             Conns
-      end;
+    end;
 conn_checkin_host_conns(Pid, _, _) ->
     %% this pid has nowhere to go
     gun:close(Pid),
@@ -356,18 +355,18 @@ find_awaiting_conn_test_() ->
                      {{pid1, ref1}, req1},
                      {{pid2, ref2}, req2}],
     Cases = [
-            {
-             "no conn",
-             pid3,
-             {{error, no_awaiting_pid}, AwaitingConns}
-            },
-            {
-             "with conn",
-             pid2,
-             {{ok, {{pid2, ref2}, req2}},
-              [{{pid1, ref1}, req1}]}
-            }
-           ],
+             {
+              "no conn",
+              pid3,
+              {{error, no_awaiting_pid}, AwaitingConns}
+             },
+             {
+              "with conn",
+              pid2,
+              {{ok, {{pid2, ref2}, req2}},
+               [{{pid1, ref1}, req1}]}
+             }
+            ],
     F = fun({Title, Pid, Expected}) ->
                 Actual = find_awaiting_conn(Pid, AwaitingConns),
                 [{Title, ?_assertEqual(Expected, Actual)}]

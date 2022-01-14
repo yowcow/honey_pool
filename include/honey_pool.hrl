@@ -7,7 +7,7 @@
 -record(state, {
           new_conn :: fun((Host::string(), Port::integer(), Opt::map())
                           -> {ok, conn()} | {error, Reason::any()}),
-          inactivity_timeout = infinity :: timeout(),
+          idle_timeout = infinity :: timeout(),
           host_conns = #{} :: host_conns(),
           conn_host = #{} :: conn_host()
          }).

@@ -31,7 +31,7 @@ init([]) ->
                  period => 1},
     WpoolConfig = application:get_env(honey_pool, wpool, []),
     GunOpt = application:get_env(honey_pool, gun_opts, #{}),
-    InactivityTimeout = application:get_env(honey_pool, inactivity_timeout, infinity),
+    IdleTimeout = application:get_env(honey_pool, idle_timeout, infinity),
     ChildSpecs = [
                   #{
                     id => honey_pool_workers,
@@ -41,7 +41,7 @@ init([]) ->
                                                     {overrun_warning, 300},
                                                     {worker, {honey_pool_worker,
                                                               [{gun_opts, GunOpt},
-                                                               {inactivity_timeout, InactivityTimeout}
+                                                               {idle_timeout, IdleTimeout}
                                                               ]}}
                                                    ]]
                              },
