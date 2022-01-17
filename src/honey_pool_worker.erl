@@ -3,7 +3,7 @@
 
 -export([
          init/1,
-         termiante/2,
+         terminate/2,
          handle_call/3,
          handle_cast/2,
          handle_info/2
@@ -43,7 +43,7 @@ init(Args) ->
             tabid = ets:new(?ETS_TABLE, [set])
            }}.
 
-termiante(Reason, State) ->
+terminate(Reason, State) ->
     ?LOG_INFO("(~p) terminating worker: ~p", [self(), Reason]),
     Pids = ets:foldl(
              fun(V, Acc) ->
