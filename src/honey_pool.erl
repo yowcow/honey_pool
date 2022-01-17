@@ -4,7 +4,7 @@
          get/1, get/2, get/3, get/4,
          post/2, post/3, post/4, post/5,
          request/6,
-         dump_state/0, state_summary/0
+         dump_state/0, summarize_state/0
         ]).
 
 -export([
@@ -221,11 +221,11 @@ dump_state() ->
     [gen_server:call(Proc, dump_state)
      || Proc <- wpool:get_workers(honey_pool_worker)].
 
--spec state_summary() -> [map()].
-state_summary() ->
-    [state_summary(S) || S <- dump_state()].
+-spec summarize_state() -> [map()].
+summarize_state() ->
+    [summarize_state(S) || S <- dump_state()].
 
-state_summary(#{host_conns := HC, conn_host := CH}) ->
+summarize_state(#{host_conns := HC, conn_host := CH}) ->
     #{total_conns => maps:size(CH),
       host_conns => lists:foldl(
                       fun({Host, Bag}, Acc) ->
