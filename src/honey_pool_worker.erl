@@ -3,6 +3,7 @@
 
 -export([
          init/1,
+         termiante/2,
          handle_call/3,
          handle_cast/2,
          handle_info/2
@@ -42,12 +43,30 @@ init(Args) ->
             tabid = ets:new(?ETS_TABLE, [set])
            }}.
 
+termiante(Reason, State) ->
+    ?LOG_INFO("(~p) terminating worker: ~p", [self(), Reason]),
+    Pids = ets:foldl(
+             fun(V, Acc) ->
+                     case V of
+                         {{hostinfo, Pid}, _} ->
+                             [Pid|Acc];
+                         _ ->
+                             Acc
+                     end
+             end, [], State#state.tabid),
+    lists:map(fun(Pid) ->
+                      gun:close(Pid)
+              end, Pids),
+    ok.
+
 handle_call({checkout, HostInfo}, {Requester, _}, State) ->
     Ret = conn_checkout(HostInfo, Requester, State),
     ?LOG_DEBUG("(~p) checkout a conn: ~p -> ~p", [self(), HostInfo, Ret]),
     {reply, {self(), Ret}, State};
 handle_call(dump_state, _From, State) ->
     {reply, ets_dump(State#state.tabid), State};
+handle_call(tabid, _From, State) ->
+    {reply, State#state.tabid, State};
 handle_call(Req, From, State) ->
     ?LOG_WARNING("(~p) unhandled call (~p, ~p, ~p)", [self(), Req, From ,State]),
     {reply, {error, no_handler}, State}.
@@ -87,6 +106,8 @@ handle_info(Req, State) ->
 ets_shift_available_conns(TabId, HostInfo) ->
     case ets:lookup(TabId, {available_conns, HostInfo}) of
         [] ->
+            none;
+        [{_key, []}] ->
             none;
         [{_Key, [V|T]}] ->
             ets:insert(TabId, {{available_conns, HostInfo}, T}),
@@ -181,23 +202,24 @@ ets_delete_conn_hostinfo(TabId, Pid) ->
 
 ets_dump(TabId) ->
     ets:foldl(
-      fun({{hostinfo, Pid}, HostInfo}, #{conn_host := M} = Acc) ->
-              Acc#{conn_host => M#{Pid => HostInfo}};
-         ({{Group, HostInfo}, [_|_] = Conns}, #{host_conns := M} = Acc) ->
-              M1 = case maps:find(HostInfo, M) of
-                       {ok, N} ->
-                           M#{HostInfo => N#{Group => Conns}};
-                       _ -> #{HostInfo => #{Group => Conns}}
-                   end,
-              Acc#{host_conns => M1};
-         (_V, Acc) ->
-              Acc
-      end,
+      fun ets_dump/2,
       #{
         host_conns => #{},
         conn_host => #{}
        },
       TabId).
+
+ets_dump({{hostinfo, Pid}, HostInfo}, #{conn_host := M} = Acc) ->
+    Acc#{conn_host => M#{Pid => HostInfo}};
+ets_dump({{Group, HostInfo}, Conns}, #{host_conns := M} = Acc) ->
+    case maps:find(HostInfo, M) of
+        {ok, N} ->
+            Acc#{host_conns => M#{HostInfo => N#{Group => Conns}}};
+        _ ->
+            Acc#{host_conns => M#{HostInfo => #{Group => Conns}}}
+    end;
+ets_dump(_V, Acc) ->
+    Acc.
 
 
 %%
