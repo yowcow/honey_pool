@@ -48,10 +48,12 @@ ok
 
 3> honey_pool:summarize_state().
 [#{host_conns =>
-       #{{"example.com",443,tls} =>
-             #{available_conns => 1,awaiting_conns => 0,in_use_conns => 0}},
+       [{{"example.com",443,tls},
+         #{available_conns => 1,awaiting_conns => 0,
+           in_use_conns => 0}}],
    total_conns => 1},
- #{host_conns => #{},total_conns => 0}]
+ #{host_conns => [],total_conns => 0},
+ #{host_conns => [],total_conns => 0}]
 ```
 
 
