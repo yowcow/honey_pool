@@ -253,8 +253,8 @@ summarize_bag(Bag, [H|T], Acc) ->
                 end}).
 
 sort_host_conns(
-  #{available_conns := AA, in_use_conns := AB},
-  #{available_conns := BA, in_use_conns := BB}
+  {_, #{available_conns := AA, in_use_conns := AB}},
+  {_, #{available_conns := BA, in_use_conns := BB}}
  ) ->
     case AB > BB of
         false ->
@@ -295,46 +295,33 @@ sort_host_conns_test_() ->
               []
              },
              {"sort by in_use_conns desc",
-              [#{available_conns => 0, in_use_conns => 1},
-               #{available_conns => 0, in_use_conns => 2},
-               #{available_conns => 0, in_use_conns => 3}],
-              [#{available_conns => 0, in_use_conns => 3},
-               #{available_conns => 0, in_use_conns => 2},
-               #{available_conns => 0, in_use_conns => 1}]
+              [{host1, #{available_conns => 0, in_use_conns => 1}},
+               {host2, #{available_conns => 0, in_use_conns => 2}},
+               {host3, #{available_conns => 0, in_use_conns => 3}}],
+              [host3, host2, host1]
              },
              {"sort by available_conns desc",
-              [#{available_conns => 1, in_use_conns => 0},
-               #{available_conns => 2, in_use_conns => 0},
-               #{available_conns => 3, in_use_conns => 0}],
-              [#{available_conns => 3, in_use_conns => 0},
-               #{available_conns => 2, in_use_conns => 0},
-               #{available_conns => 1, in_use_conns => 0}]
+              [{host1, #{available_conns => 1, in_use_conns => 0}},
+               {host2, #{available_conns => 2, in_use_conns => 0}},
+               {host3, #{available_conns => 3, in_use_conns => 0}}],
+              [host3, host2, host1]
              },
              {"sort by in_use_conns -> available_conns desc",
-              [#{available_conns => 0, in_use_conns => 0},
-               #{available_conns => 0, in_use_conns => 1},
-               #{available_conns => 0, in_use_conns => 2},
-               #{available_conns => 1, in_use_conns => 0},
-               #{available_conns => 1, in_use_conns => 1},
-               #{available_conns => 1, in_use_conns => 2},
-               #{available_conns => 2, in_use_conns => 0},
-               #{available_conns => 2, in_use_conns => 1},
-               #{available_conns => 2, in_use_conns => 2}
+              [{host1, #{available_conns => 0, in_use_conns => 0}},
+               {host2, #{available_conns => 0, in_use_conns => 1}},
+               {host3, #{available_conns => 0, in_use_conns => 2}},
+               {host4, #{available_conns => 1, in_use_conns => 0}},
+               {host5, #{available_conns => 1, in_use_conns => 1}},
+               {host6, #{available_conns => 1, in_use_conns => 2}},
+               {host7, #{available_conns => 2, in_use_conns => 0}},
+               {host8, #{available_conns => 2, in_use_conns => 1}},
+               {host9, #{available_conns => 2, in_use_conns => 2}}
               ],
-              [#{available_conns => 2, in_use_conns => 2},
-               #{available_conns => 1, in_use_conns => 2},
-               #{available_conns => 0, in_use_conns => 2},
-               #{available_conns => 2, in_use_conns => 1},
-               #{available_conns => 1, in_use_conns => 1},
-               #{available_conns => 0, in_use_conns => 1},
-               #{available_conns => 2, in_use_conns => 0},
-               #{available_conns => 1, in_use_conns => 0},
-               #{available_conns => 0, in_use_conns => 0}
-              ]
+              [host9, host6, host3, host8, host5, host2, host7, host4, host1]
              }
             ],
     F = fun({Title, Input, Expected}) ->
-                Actual = lists:sort(fun sort_host_conns/2, Input),
+                Actual = [Host || {Host, _} <- lists:sort(fun sort_host_conns/2, Input)],
                 [{Title, ?_assertEqual(Expected, Actual)}]
         end,
     lists:map(F, Cases).
