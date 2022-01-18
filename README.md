@@ -62,6 +62,8 @@ In the sys.config, have:
 
 ```
 {honey_pool, [
+              %% honey pool configurations
+              {idle_timeout, 60000}, %% close connection after 60 sec of idle
               %% worker pool configurations (see worker pool docs for details)
               {wpool, [
                        {workers, 10}, %% start 10 connection pools
