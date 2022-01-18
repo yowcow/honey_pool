@@ -34,7 +34,7 @@ checkout_checkin_test_() ->
      fun() ->
              Config = boot_server(),
              {ok, Apps} = application:ensure_all_started(gun),
-             {ok, Pid} = gen_server:start_link({local, ?MODULE}, honey_pool_worker, [], []),
+             {ok, Pid} = gen_server:start_link({local, ?MODULE}, honey_pool_worker, [{idle_timeout, 500}], []),
              [{apps, lists:flatten(Apps, proplists:get_value(apps, Config))},
               {pid, Pid} |
               Config]
@@ -78,7 +78,7 @@ checkout_checkin_test_() ->
                                  ?_assertMatch(
                                     #{HostInfo := #{
                                                     awaiting_conns := [],
-                                                    in_use_conns := [{Pid, _}]
+                                                    in_use_conns := [{{Pid, _}, _tref}]
                                                    }},
                                     HostConns1)},
                                 {Title++": conn_host after checkin",
@@ -90,7 +90,7 @@ checkout_checkin_test_() ->
                                     #{HostInfo := #{
                                                     awaiting_conns := [],
                                                     in_use_conns := [],
-                                                    available_conns := [{Pid, _}]
+                                                    available_conns := [{{Pid, _}, _tref}]
                                                    }},
                                     HostConns2)}
                                ]
@@ -117,7 +117,7 @@ checkout_checkin_test_() ->
                                  ?_assertMatch(
                                     #{HostInfo := #{
                                                     awaiting_conns := [],
-                                                    in_use_conns := [{Pid, _}]
+                                                    in_use_conns := [{{Pid, _}, _tref}]
                                                    }},
                                     HostConns1)},
                                 {Title++": conn_host after checkin",
@@ -129,7 +129,7 @@ checkout_checkin_test_() ->
                                     #{HostInfo := #{
                                                     awaiting_conns := [],
                                                     in_use_conns := [],
-                                                    available_conns := [{Pid, _}]
+                                                    available_conns := [{{Pid, _}, _tref}]
                                                    }},
                                     HostConns2)}
                                ]
@@ -156,7 +156,7 @@ checkout_checkin_test_() ->
                                  ?_assertMatch(
                                     #{HostInfo := #{
                                                     awaiting_conns := [],
-                                                    in_use_conns := [{Pid, _}]
+                                                    in_use_conns := [{{Pid, _}, _tref}]
                                                    }},
                                     HostConns1)},
                                 {Title++": conn_host after close",
@@ -164,6 +164,48 @@ checkout_checkin_test_() ->
                                     #{},
                                     ConnHost2)},
                                 {Title++": host_conns after close",
+                                 ?_assertEqual(
+                                    #{HostInfo => #{
+                                                    awaiting_conns => [],
+                                                    in_use_conns => [],
+                                                    available_conns => []
+                                                   }},
+                                    HostConns2)}
+                               ]
+                       end
+                      },
+                      {
+                       "after idle_timeout (500 ms)",
+                       fun(Title) ->
+                               %% checkout
+                               {_ReturnTo, {awaiting, Pid}} = gen_server:call(?MODULE, {checkout, HostInfo}),
+                               {ok, http} = receive
+                                                V1 -> V1
+                                            end,
+                               #{conn_host := ConnHost1,
+                                 host_conns := HostConns1} = gen_server:call(?MODULE, dump_state),
+                               %% idle_timeout (with extra 250 ms)
+                               timer:sleep(750),
+                               #{conn_host := ConnHost2,
+                                 host_conns := HostConns2} = gen_server:call(?MODULE, dump_state),
+                               %% tests
+                               [
+                                {Title++": conn_host after checkout",
+                                 ?_assertMatch(
+                                    #{Pid := HostInfo},
+                                    ConnHost1)},
+                                {Title++": host_conns after checkout",
+                                 ?_assertMatch(
+                                    #{HostInfo := #{
+                                                    awaiting_conns := [],
+                                                    in_use_conns := [{{Pid, _}, _tref}]
+                                                   }},
+                                    HostConns1)},
+                                {Title++": conn_host after idle_timeout",
+                                 ?_assertEqual(
+                                    #{},
+                                    ConnHost2)},
+                                {Title++": host_conns after idle_timeout",
                                  ?_assertEqual(
                                     #{HostInfo => #{
                                                     awaiting_conns => [],

@@ -34,9 +34,11 @@
 get(Url) ->
     get(Url, []).
 
--spec get(Url::url(), Headers::req_headers()) -> resp().
-get(Url, Headers) ->
-    get(Url, Headers, #{}).
+-spec get(Url::url(), Headers::req_headers()|timeout()) -> resp().
+get(Url, Headers) when is_list(Headers) ->
+    get(Url, Headers, #{});
+get(Url, Timeout) ->
+    get(Url, [], Timeout).
 
 -spec get(Url::url(), Headers::req_headers(), Opts::gun_opts()|timeout()) -> resp().
 get(Url, Headers, Opts) when is_map(Opts) ->
@@ -226,34 +228,102 @@ summarize_state() ->
     [summarize_state(S) || S <- dump_state()].
 
 summarize_state(#{host_conns := HC, conn_host := CH}) ->
+    HostConns = lists:foldl(
+                  fun({Host, Bag}, Acc) ->
+                          [{Host, summarize_bag(Bag)} | Acc]
+                  end, [], maps:to_list(HC)),
     #{total_conns => maps:size(CH),
-      host_conns => lists:foldl(
-                      fun({Host, Bag}, Acc) ->
-                              Acc#{
-                                Host => #{
-                                          available_conns =>
-                                          case maps:find(available_conns, Bag) of
-                                              {ok, V} ->
-                                                  length(V);
-                                              _ ->
-                                                  0
-                                          end,
-                                          in_use_conns =>
-                                          case maps:find(in_use_conns, Bag) of
-                                              {ok, V} ->
-                                                  length(V);
-                                              _ ->
-                                                  0
-                                          end,
-                                          awaiting_conns =>
-                                          case maps:find(awaiting_conns, Bag) of
-                                              {ok, V} ->
-                                                  length(V);
-                                              _ ->
-                                                  0
-                                          end
-                                         }}
-                      end,
-                      #{},
-                      maps:to_list(HC))
+      host_conns => lists:sort(fun sort_host_conns/2 , HostConns)
      }.
+
+summarize_bag(Bag) ->
+    summarize_bag(Bag, [available_conns, in_use_conns, awaiting_conns], #{}).
+
+summarize_bag(_Bag, [], Acc) ->
+    Acc;
+summarize_bag(Bag, [H|T], Acc) ->
+    summarize_bag(
+      Bag,
+      T,
+      Acc#{H => case maps:find(H, Bag) of
+                    {ok, V} ->
+                        length(V);
+                    _ ->
+                        0
+                end}).
+
+sort_host_conns(
+  {_, #{available_conns := AA, in_use_conns := AB}},
+  {_, #{available_conns := BA, in_use_conns := BB}}
+ ) ->
+    case AB > BB of
+        false ->
+            AA > BA;
+        V ->
+            V
+    end.
+
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+summarize_bag_test_() ->
+    Cases = [
+             {"empty bag",
+              #{},
+              #{available_conns => 0, in_use_conns => 0, awaiting_conns => 0}
+             },
+             {"bag with empty lists",
+              #{available_conns => []},
+              #{available_conns => 0, in_use_conns => 0, awaiting_conns => 0}
+             },
+             {"bag with some items",
+              #{available_conns => [foo], in_use_conns => [foo, bar], awaiting_conns => [foo, bar, buz]},
+              #{available_conns => 1, in_use_conns => 2, awaiting_conns => 3}
+             }
+            ],
+    F = fun({Title, Input, Expected}) ->
+                Actual = summarize_bag(Input),
+                [{Title, ?_assertEqual(Expected, Actual)}]
+        end,
+    lists:map(F, Cases).
+
+sort_host_conns_test_() ->
+    Cases = [
+             {"empty list",
+              [],
+              []
+             },
+             {"sort by in_use_conns desc",
+              [{host1, #{available_conns => 0, in_use_conns => 1}},
+               {host2, #{available_conns => 0, in_use_conns => 2}},
+               {host3, #{available_conns => 0, in_use_conns => 3}}],
+              [host3, host2, host1]
+             },
+             {"sort by available_conns desc",
+              [{host1, #{available_conns => 1, in_use_conns => 0}},
+               {host2, #{available_conns => 2, in_use_conns => 0}},
+               {host3, #{available_conns => 3, in_use_conns => 0}}],
+              [host3, host2, host1]
+             },
+             {"sort by in_use_conns -> available_conns desc",
+              [{host1, #{available_conns => 0, in_use_conns => 0}},
+               {host2, #{available_conns => 0, in_use_conns => 1}},
+               {host3, #{available_conns => 0, in_use_conns => 2}},
+               {host4, #{available_conns => 1, in_use_conns => 0}},
+               {host5, #{available_conns => 1, in_use_conns => 1}},
+               {host6, #{available_conns => 1, in_use_conns => 2}},
+               {host7, #{available_conns => 2, in_use_conns => 0}},
+               {host8, #{available_conns => 2, in_use_conns => 1}},
+               {host9, #{available_conns => 2, in_use_conns => 2}}
+              ],
+              [host9, host6, host3, host8, host5, host2, host7, host4, host1]
+             }
+            ],
+    F = fun({Title, Input, Expected}) ->
+                Actual = [Host || {Host, _} <- lists:sort(fun sort_host_conns/2, Input)],
+                [{Title, ?_assertEqual(Expected, Actual)}]
+        end,
+    lists:map(F, Cases).
+
+-endif.

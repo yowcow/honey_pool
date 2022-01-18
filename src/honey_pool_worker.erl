@@ -40,7 +40,8 @@ init(Args) ->
                                        Err
                                end
                        end,
-            tabid = ets:new(?ETS_TABLE, [set])
+            tabid = ets:new(?ETS_TABLE, [set]),
+            idle_timeout = proplists:get_value(idle_timeout, Args, infinity)
            }}.
 
 terminate(Reason, State) ->
@@ -78,6 +79,10 @@ handle_cast(Req, State) ->
     ?LOG_WARNING("(~p) unhandled cast (~p, ~p)", [self(), Req, State]),
     {noreply, State}.
 
+handle_info({idle_timeout, Pid}, State) ->
+    ?LOG_DEBUG("(~p) idle timeout: ~p", [self(), Pid]),
+    ok = gun:close(Pid),
+    {noreply, State};
 handle_info({checkin, Pid}, State) ->
     ?LOG_DEBUG("(~p) checkin a conn: ~p", [self(), Pid]),
     ok = conn_checkin(Pid, State),
@@ -92,7 +97,7 @@ handle_info({gun_down, Pid, _, _, _}, State) ->
     {noreply, State};
 handle_info({'DOWN', MRef, _, Pid, Reason}, State) ->
     ?LOG_DEBUG("(~p) conn has gone away: ~p (~p)", [self(), Pid, Reason]),
-    demonitor(MRef),
+    demonitor(MRef, [flush]),
     ok = conn_down(Pid, {error, Reason}, State),
     {noreply, State};
 handle_info(Req, State) ->
@@ -130,7 +135,7 @@ ets_pickup_available_conn(TabId, HostInfo, Pid) ->
                 _ ->
                     []
             end,
-    case lists:partition(fun({P, _}) -> P =:= Pid end, Conns) of
+    case lists:partition(fun({{P, _}, _}) -> P =:= Pid end, Conns) of
         {[Conn|_], AvailableConns} ->
             ets:insert(TabId, {{available_conns, HostInfo}, AvailableConns}),
             {ok, Conn};
@@ -154,7 +159,7 @@ ets_pickup_in_use_conn(TabId, HostInfo, Pid) ->
                 _ ->
                     []
             end,
-    case lists:partition(fun({P, _}) -> P =:= Pid end, Conns) of
+    case lists:partition(fun({{P, _}, _}) -> P =:= Pid end, Conns) of
         {[Conn|_], InUseConns} ->
             ets:insert(TabId, {{in_use_conns, HostInfo}, InUseConns}),
             {ok, Conn};
@@ -237,22 +242,52 @@ conn_checkout(
     TabId = State#state.tabid,
     NewConnFun = State#state.new_conn,
     case ets_shift_available_conns(TabId, HostInfo) of
-        {ok, {Pid, _} = Conn} ->
+        {ok, {{Pid, _} = Conn, TRef}} ->
             %% conn available -> move to in_use_conns
-            ets_unshift_in_use_conn(TabId, HostInfo, Conn),
+            ets_unshift_in_use_conn(
+              TabId,
+              HostInfo,
+              {Conn, idle_timer(Pid, TRef, State#state.idle_timeout)}),
             {ok, Pid};
         _ ->
             %% no conn available -> create a new conn
             case NewConnFun(Host, Port, Transport) of
                 {ok, {Pid, _} = Conn} ->
-                    ets_unshift_awaiting_conn(TabId, HostInfo, {Conn, Requester}),
-                    ets_unshift_in_use_conn(TabId, HostInfo, Conn),
-                    ets_insert_conn_hostinfo(TabId, Pid, HostInfo),
+                    ets_unshift_awaiting_conn(
+                      TabId,
+                      HostInfo,
+                      {Conn, Requester}),
+                    ets_unshift_in_use_conn(
+                      TabId,
+                      HostInfo,
+                      {Conn, idle_timer(Pid, State#state.idle_timeout)}),
+                    ets_insert_conn_hostinfo(
+                      TabId,
+                      Pid,
+                      HostInfo),
                     {awaiting, Pid};
                 Err ->
                     Err
             end
     end.
+
+-spec idle_timer(Pid::pid(), TRef::timer_ref(), Timeout::timeout()) -> timer_ref().
+idle_timer(Pid, TRef, Timeout) ->
+    cancel_idle_timer(TRef),
+    idle_timer(Pid, Timeout).
+
+-spec idle_timer(Pid::pid(), Timeout::timeout()) -> timer_ref().
+idle_timer(_Pid, infinity) ->
+    no_ref;
+idle_timer(Pid, Timeout) ->
+    erlang:send_after(Timeout, self(), {idle_timeout, Pid}).
+
+-spec cancel_idle_timer(TRef::timer_ref()) -> ok.
+cancel_idle_timer(no_ref) ->
+    ok;
+cancel_idle_timer(TRef) ->
+    erlang:cancel_timer(TRef),
+    ok.
 
 -spec conn_up(pid(), term(), state()) -> ok.
 conn_up(Pid, Msg, State) ->
@@ -280,8 +315,11 @@ conn_checkin(Pid, State) ->
     case ets_find_conn_hostinfo(TabId, Pid) of
         {ok, HostInfo} ->
             case ets_pickup_in_use_conn(TabId, HostInfo, Pid) of
-                {ok, Conn} ->
-                    ets_unshift_available_conn(TabId, HostInfo, Conn),
+                {ok, {Conn, TRef}} ->
+                    ets_unshift_available_conn(
+                      TabId,
+                      HostInfo,
+                      {Conn, idle_timer(Pid, TRef, State#state.idle_timeout)}),
                     ok;
                 _ ->
                     ?LOG_WARNING("(~p) conn is not in use: ~p (~p)", [self(), Pid, HostInfo]),
@@ -300,14 +338,16 @@ conn_down(Pid, Msg, State) ->
     case ets_find_conn_hostinfo(TabId, Pid) of
         {ok, HostInfo} ->
             case ets_pickup_available_conn(TabId, HostInfo, Pid) of
-                {ok, {_, MRef1}} ->
-                    demonitor(MRef1, [flush]);
+                {ok, {{_, MRef1}, TRef1}} ->
+                    demonitor(MRef1, [flush]),
+                    cancel_idle_timer(TRef1);
                 _ ->
                     skip
             end,
             case ets_pickup_in_use_conn(TabId, HostInfo, Pid) of
-                {ok, {_, MRef2}} ->
-                    demonitor(MRef2, [flush]);
+                {ok, {{_, MRef2}, TRef2}} ->
+                    demonitor(MRef2, [flush]),
+                    cancel_idle_timer(TRef2);
                 _ ->
                     skip
             end,

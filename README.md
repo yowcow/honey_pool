@@ -48,10 +48,12 @@ ok
 
 3> honey_pool:summarize_state().
 [#{host_conns =>
-       #{{"example.com",443,tls} =>
-             #{available_conns => 1,awaiting_conns => 0,in_use_conns => 0}},
+       [{{"example.com",443,tls},
+         #{available_conns => 1,awaiting_conns => 0,
+           in_use_conns => 0}}],
    total_conns => 1},
- #{host_conns => #{},total_conns => 0}]
+ #{host_conns => [],total_conns => 0},
+ #{host_conns => [],total_conns => 0}]
 ```
 
 
@@ -62,6 +64,8 @@ In the sys.config, have:
 
 ```
 {honey_pool, [
+              %% honey pool configurations
+              {idle_timeout, 60000}, %% close connection after 60 sec of idle
               %% worker pool configurations (see worker pool docs for details)
               {wpool, [
                        {workers, 10}, %% start 10 connection pools

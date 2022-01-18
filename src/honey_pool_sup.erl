@@ -30,6 +30,7 @@ init([]) ->
                  intensity => 0,
                  period => 1},
     GunOpt = application:get_env(honey_pool, gun_opts, #{}),
+    IdleTimeout = application:get_env(honey_pool, idle_timeout, infinity),
     WpoolConfig = maps:to_list(
                     lists:foldr(
                     fun({K, V}, Acc) -> Acc#{K => V} end,
@@ -38,7 +39,10 @@ init([]) ->
                       application:get_env(honey_pool, wpool, []),
                       [{workers, 2},
                        {overrun_warning, 300},
-                       {worker, {honey_pool_worker, [{gun_opts, GunOpt}]}}
+                       {worker, {honey_pool_worker,
+                                 [{gun_opts, GunOpt},
+                                  {idle_timeout, IdleTimeout}
+                                 ]}}
                       ])
                    )),
     ChildSpecs = [
