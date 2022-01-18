@@ -1,3 +1,12 @@
+-record(uri, {
+          host = "" :: string(),
+          path = "" :: string(),
+          query = "" :: string(),
+          pathquery = "" :: string(),
+          port = 80 :: integer(),
+          transport = tcp :: transport()
+         }).
+
 -record(connections, {
           available = [] :: [conn()],
           in_use = [] :: [conn()],
@@ -5,16 +14,17 @@
          }).
 
 -record(state, {
-          new_conn :: fun((Host::string(), Port::integer(), Opt::map()) -> {ok, conn()} | {error, Reason::any()}),
-          host_conns = #{} :: host_conns(),
-          conn_host = #{} :: conn_host()
+          new_conn :: fun((Host::string(), Port::integer(), Transport::transport())
+                          -> {ok, conn()} | {error, Reason::any()}),
+          tabid :: ets:tid()
          }).
 
 -type conn() :: {pid(), reference()}.
 -type awaiting_conn() :: {conn(), pid()}.
 
--type hostinfo() :: {Host::string(), Port::integer(), Opt::map()}.
+-type transport() :: tcp | tls.
+-type hostinfo() :: {Host::string(), Port::integer(), Transport::transport()}.
 -type connections() :: #connections{}.
 -type host_conns() :: #{ hostinfo() => connections() }.
--type conn_host() :: #{ pid() => hostinfo() }.
 -type state() :: #state{}.
+-type uri() :: #uri{}.

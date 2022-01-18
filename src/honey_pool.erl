@@ -3,24 +3,17 @@
 -export([
          get/1, get/2, get/3, get/4,
          post/2, post/3, post/4, post/5,
-         request/6
+         request/6,
+         dump_state/0, summarize_state/0
         ]).
 
 -export([
-         checkout/4,
+         checkout/2,
          checkin/2
         ]).
 
 -include_lib("kernel/include/logger.hrl").
-
--record(uri, {
-          host = "" :: string(),
-          path = "" :: string(),
-          query = "" :: string(),
-          pathquery = "" :: string(),
-          port = 80 :: integer(),
-          transport = tcp :: tcp | tls
-         }).
+-include("include/honey_pool.hrl").
 
 -define(USER_AGENT, "honey-pool/0.1").
 -define(WORKER, honey_pool_worker).
@@ -29,16 +22,13 @@
 -define(METHOD_GET, <<"GET">>).
 -define(METHOD_POST, <<"POST">>).
 
--type method() :: binary().
--type url() :: string().
--type uri() :: #uri{}.
--type status() :: integer().
-
--type req_headers() :: gun:req_headers().
--type resp_headers() :: gun:resp_headers().
 -type gun_opts() :: gun:opts().
-
+-type method() :: binary().
+-type req_headers() :: gun:req_headers().
 -type resp() :: {ok, {status(), resp_headers(), binary() | no_data}} | {error, Reason::any()}.
+-type resp_headers() :: gun:resp_headers().
+-type status() :: integer().
+-type url() :: string().
 
 -spec get(Url::url()) -> resp().
 get(Url) ->
@@ -85,13 +75,11 @@ post(Url, Headers, Body, Opt, Timeout) ->
         Timeout0::timeout()
        ) -> resp().
 request(Method, Url, Headers, Body, Opts, Timeout0) ->
-    case parse_uri(Url) of
+    case honey_pool_uri:parse(Url) of
         {ok, U} ->
             {Elapsed, Checkout} = timer:tc(
-                                    fun checkout/4,
-                                    [U#uri.host,
-                                     U#uri.port,
-                                     #{transport => U#uri.transport},
+                                    fun checkout/2,
+                                    [{U#uri.host, U#uri.port, U#uri.transport},
                                      Timeout0]),
             case Checkout of
                 {ok, {ReturnTo, Pid}} ->
@@ -169,48 +157,11 @@ do_request(Pid, Method, Path, Headers, Body, Opts, Timeout0) ->
                [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
 
--spec parse_uri(string() | binary()) -> {ok, uri()} | {error, term()}.
-parse_uri(Uri) when is_binary(Uri) ->
-    parse_uri(binary_to_list(Uri));
-parse_uri(Uri) ->
-    try
-        Parsed = uri_string:parse(Uri),
-        Transport = case maps:find(scheme, Parsed) of
-                        {ok, "https"} -> tls;
-                        _ -> tcp
-                    end,
-        Path = case maps:find(path, Parsed) of
-                   {ok, ""} -> "/";
-                   {ok, V} -> V;
-                   _ -> "/"
-               end,
-        Query = maps:get(query, Parsed, ""),
-        Port = maps:get(port, Parsed, case Transport of
-                                          tls -> 443;
-                                          _ -> 80
-                                      end),
-        {ok, #uri{
-                host = maps:get(host, Parsed, ""),
-                path = Path,
-                query = Query,
-                pathquery = case Query of
-                                [] -> Path;
-                                _ -> [Path, "?", Query]
-                            end,
-                port = Port,
-                transport = Transport
-               }}
-    catch
-        _:Err ->
-            {error, {Err, Uri}}
-    end.
 
 -spec headers(req_headers()) -> req_headers().
 headers(Headers) ->
-    [
-     {<<"User-Agent">>, ?USER_AGENT}
-     | Headers
-    ].
+    [{<<"User-Agent">>, ?USER_AGENT}
+     | Headers].
 
 -spec next_timeout(Timeout0::timeout(), MicroSec::integer()) -> timeout().
 next_timeout(infinity, _) ->
@@ -225,21 +176,21 @@ next_timeout(Timeout0, MicroSec) ->
     end.
 
 -spec checkout(
-        Host::string(),
-        Port::integer(),
-        Opt::map(),
+        HostInfo::hostinfo(),
         Timeout0::timeout()
        ) -> {ok, {ReturnTo::pid(), Pid::pid()}} | {error, Reason::term()}.
-checkout(Host, Port, Opt, Timeout0) ->
+checkout(HostInfo, Timeout0) ->
     try timer:tc(
           fun wpool:call/4,
           [?WORKER,
-           {checkout, {Host, Port, Opt}},
+           {checkout, HostInfo},
            available_worker,
            Timeout0]) of
-        {_Elapsed, {ReturnTo, {ok, Pid}}} ->
+        {_Elapsed,
+         {ReturnTo, {ok, Pid}}} ->
             {ok, {ReturnTo, Pid}};
-        {Elapsed, {ReturnTo, {awaiting, Pid}}} ->
+        {Elapsed,
+         {ReturnTo, {awaiting, Pid}}} ->
             Timeout1 = next_timeout(Timeout0, Elapsed),
             receive
                 {ok, _} ->
@@ -265,88 +216,44 @@ checkin(ReturnTo, Pid) ->
     ReturnTo ! {checkin, Pid},
     ok.
 
+-spec dump_state() -> [map()].
+dump_state() ->
+    [gen_server:call(Proc, dump_state)
+     || Proc <- wpool:get_workers(honey_pool_worker)].
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
+-spec summarize_state() -> [map()].
+summarize_state() ->
+    [summarize_state(S) || S <- dump_state()].
 
-parse_uri_test_() ->
-    Cases = [
-             {
-              "http://foobar.com",
-              fun(Actual) ->
-                      Expected = {ok,
-                                  #uri{
-                                     host = "foobar.com",
-                                     path = "/",
-                                     query = "",
-                                     pathquery = "/",
-                                     port = 80,
-                                     transport = tcp
-                                    }},
-                      ?_assertEqual(Expected, Actual)
-              end
-             },
-             {
-              "https://foobar.com/",
-              fun(Actual) ->
-                      Expected = {ok,
-                                  #uri{
-                                     host = "foobar.com",
-                                     path = "/",
-                                     query = "",
-                                     pathquery = "/",
-                                     port = 443,
-                                     transport = tls
-                                    }},
-                      ?_assertEqual(Expected, Actual)
-              end
-             },
-             {
-              "https://foobar.com:8443/hoge/fuga?foo=bar&bar=foo",
-              fun({ok, Actual}) ->
-                      Expected = {ok, #uri{
-                                         host = "foobar.com",
-                                         path = "/hoge/fuga",
-                                         query = "foo=bar&bar=foo",
-                                         pathquery = "/hoge/fuga?foo=bar&bar=foo",
-                                         port = 8443,
-                                         transport = tls
-                                        }},
-                      Actual1 = Actual#uri{
-                                  pathquery = lists:flatten(Actual#uri.pathquery)
-                                 },
-                      ?_assertEqual(Expected, {ok, Actual1})
-              end
-             },
-             {
-              <<"https://foobar.com:8443/hoge/fuga?foo=bar&bar=foo">>,
-              fun({ok, Actual}) ->
-                      Expected = {ok, #uri{
-                                        host = "foobar.com",
-                                        path = "/hoge/fuga",
-                                        query = "foo=bar&bar=foo",
-                                        pathquery = "/hoge/fuga?foo=bar&bar=foo",
-                                        port = 8443,
-                                        transport = tls
-                                       }},
-                      ?_assertEqual(Expected, {ok, Actual#uri{
-                                                     pathquery = lists:flatten(Actual#uri.pathquery)
-                                                    }})
-              end
-             },
-             {
-              <<"http://hogehoge/?hoge={HOGE}">>,
-              fun(Actual) ->
-                      ?_assertEqual({error,
-                                     {{badmap,
-                                       {error, invalid_uri, ":"}},
-                                       "http://hogehoge/?hoge={HOGE}"}}, Actual)
-              end
-             }
-            ],
-    F = fun({Input, Test}) ->
-                Actual = parse_uri(Input),
-                [{Input, Test(Actual)}]
-        end,
-    lists:map(F, Cases).
--endif.
+summarize_state(#{host_conns := HC, conn_host := CH}) ->
+    #{total_conns => maps:size(CH),
+      host_conns => lists:foldl(
+                      fun({Host, Bag}, Acc) ->
+                              Acc#{
+                                Host => #{
+                                          available_conns =>
+                                          case maps:find(available_conns, Bag) of
+                                              {ok, V} ->
+                                                  length(V);
+                                              _ ->
+                                                  0
+                                          end,
+                                          in_use_conns =>
+                                          case maps:find(in_use_conns, Bag) of
+                                              {ok, V} ->
+                                                  length(V);
+                                              _ ->
+                                                  0
+                                          end,
+                                          awaiting_conns =>
+                                          case maps:find(awaiting_conns, Bag) of
+                                              {ok, V} ->
+                                                  length(V);
+                                              _ ->
+                                                  0
+                                          end
+                                         }}
+                      end,
+                      #{},
+                      maps:to_list(HC))
+     }.
