@@ -230,33 +230,27 @@ summarize_state() ->
 summarize_state(#{host_conns := HC, conn_host := CH}) ->
     HostConns = lists:foldl(
                   fun({Host, Bag}, Acc) ->
-                          [{Host,
-                            #{available_conns =>
-                              case maps:find(available_conns, Bag) of
-                                  {ok, V} ->
-                                      length(V);
-                                  _ ->
-                                      0
-                              end,
-                              in_use_conns =>
-                              case maps:find(in_use_conns, Bag) of
-                                  {ok, V} ->
-                                      length(V);
-                                  _ ->
-                                      0
-                              end,
-                              awaiting_conns =>
-                              case maps:find(awaiting_conns, Bag) of
-                                  {ok, V} ->
-                                      length(V);
-                                  _ ->
-                                      0
-                              end
-                             }} | Acc]
+                          [{Host, summarize_bag(Bag)} | Acc]
                   end, [], maps:to_list(HC)),
     #{total_conns => maps:size(CH),
       host_conns => lists:sort(fun sort_host_conns/2 , HostConns)
      }.
+
+summarize_bag(Bag) ->
+    summarize_bag(Bag, [available_conns, in_use_conns, awaiting_conns], #{}).
+
+summarize_bag(_Bag, [], Acc) ->
+    Acc;
+summarize_bag(Bag, [H|T], Acc) ->
+    summarize_bag(
+      Bag,
+      T,
+      Acc#{H => case maps:find(H, Bag) of
+                    {ok, V} ->
+                        length(V);
+                    _ ->
+                        0
+                end}).
 
 sort_host_conns(
   #{available_conns := AA, in_use_conns := AB},
@@ -272,6 +266,27 @@ sort_host_conns(
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+summarize_bag_test_() ->
+    Cases = [
+             {"empty bag",
+              #{},
+              #{available_conns => 0, in_use_conns => 0, awaiting_conns => 0}
+             },
+             {"bag with empty lists",
+              #{available_conns => []},
+              #{available_conns => 0, in_use_conns => 0, awaiting_conns => 0}
+             },
+             {"bag with some items",
+              #{available_conns => [foo], in_use_conns => [foo, bar], awaiting_conns => [foo, bar, buz]},
+              #{available_conns => 1, in_use_conns => 2, awaiting_conns => 3}
+             }
+            ],
+    F = fun({Title, Input, Expected}) ->
+                Actual = summarize_bag(Input),
+                [{Title, ?_assertEqual(Expected, Actual)}]
+        end,
+    lists:map(F, Cases).
 
 sort_host_conns_test_() ->
     Cases = [
