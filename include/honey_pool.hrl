@@ -20,9 +20,12 @@
           idle_timeout = infinity :: timeout()
          }).
 
--type conn() :: {pid(), reference()}.
--type active_conn() :: {conn(), reference()|no_ref}.
+-type conn() :: {pid(), monitor_ref()}.
+-type active_conn() :: {conn(), timer_ref()}.
 -type awaiting_conn() :: {conn(), pid()}.
+
+-type monitor_ref() :: reference().
+-type timer_ref() :: reference()|no_ref.
 
 -type transport() :: tcp | tls.
 -type hostinfo() :: {Host::string(), Port::integer(), Transport::transport()}.

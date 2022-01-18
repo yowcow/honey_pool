@@ -97,7 +97,7 @@ handle_info({gun_down, Pid, _, _, _}, State) ->
     {noreply, State};
 handle_info({'DOWN', MRef, _, Pid, Reason}, State) ->
     ?LOG_DEBUG("(~p) conn has gone away: ~p (~p)", [self(), Pid, Reason]),
-    demonitor(MRef),
+    demonitor(MRef, [flush]),
     ok = conn_down(Pid, {error, Reason}, State),
     {noreply, State};
 handle_info(Req, State) ->
@@ -271,18 +271,18 @@ conn_checkout(
             end
     end.
 
--spec idle_timer(Pid::pid(), TRef::reference()|no_ref, Timeout::timeout()) -> reference()|no_ref.
+-spec idle_timer(Pid::pid(), TRef::timer_ref(), Timeout::timeout()) -> timer_ref().
 idle_timer(Pid, TRef, Timeout) ->
     cancel_idle_timer(TRef),
     idle_timer(Pid, Timeout).
 
--spec idle_timer(Pid::pid(), Timeout::timeout()) -> reference()|no_ref.
+-spec idle_timer(Pid::pid(), Timeout::timeout()) -> timer_ref().
 idle_timer(_Pid, infinity) ->
     no_ref;
 idle_timer(Pid, Timeout) ->
     erlang:send_after(Timeout, self(), {idle_timeout, Pid}).
 
--spec cancel_idle_timer(TRef::reference()|no_ref) -> ok.
+-spec cancel_idle_timer(TRef::timer_ref()) -> ok.
 cancel_idle_timer(no_ref) ->
     ok;
 cancel_idle_timer(TRef) ->
