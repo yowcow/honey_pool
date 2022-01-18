@@ -17,7 +17,6 @@
 
 -define(USER_AGENT, "honey-pool/0.1").
 -define(WORKER, honey_pool_worker).
--define(DEFAULT_REQUEST_TIMEOUT, 1000). %% msec
 
 -define(METHOD_GET, <<"GET">>).
 -define(METHOD_POST, <<"POST">>).
@@ -42,7 +41,7 @@ get(Url, Timeout) ->
 
 -spec get(Url::url(), Headers::req_headers(), Opts::gun_opts()|timeout()) -> resp().
 get(Url, Headers, Opts) when is_map(Opts) ->
-    get(Url, Headers, Opts, ?DEFAULT_REQUEST_TIMEOUT);
+    get(Url, Headers, Opts, infinity);
 get(Url, Headers, Timeout) ->
     get(Url, Headers, #{}, Timeout).
 
@@ -60,7 +59,7 @@ post(Url, Headers, Body) ->
 
 -spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts()|timeout()) -> resp().
 post(Url, Headers, Body, Opts) when is_map(Opts) ->
-    post(Url, Headers, Body, Opts, ?DEFAULT_REQUEST_TIMEOUT);
+    post(Url, Headers, Body, Opts, infinity);
 post(Url, Headers, Body, Timeout) ->
     post(Url, Headers, Body, #{}, Timeout).
 
