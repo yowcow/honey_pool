@@ -246,6 +246,6 @@ summarize_state(
     #{total_conns => #{up => maps:size(UC),
                        await_up => maps:size(AC)},
       host_conns => lists:sort(
-                      fun({_, A}, {_, B}) -> A < B end,
+                      fun({_, A}, {_, B}) -> A > B end,
                       HostConns
                      )}.
