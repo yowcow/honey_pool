@@ -60,8 +60,6 @@ handle_call({checkout, HostInfo}, {Requester, _}, State) ->
     {reply, Ret, State};
 handle_call(dump_state, _From, State) ->
     {reply, dump_state(State), State};
-%handle_call(tabid, _From, State) ->
-%    {reply, State#state.tabid, State};
 handle_call(Req, From, State) ->
     ?LOG_WARNING("(~p) unhandled call (~p, ~p, ~p)", [self(), Req, From ,State]),
     {reply, {error, no_handler}, State}.
