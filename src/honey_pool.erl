@@ -163,6 +163,7 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout0) ->
                    gun:cancel(Pid, StreamRef),
                    {error, {await, Reason}}
            end,
+    gun:flush(StreamRef),
     ?LOG_DEBUG("(~p) conn: ~p, request: ~p, response: ~p",
                [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
