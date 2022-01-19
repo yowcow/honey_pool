@@ -22,10 +22,9 @@
 -define(METHOD_GET, <<"GET">>).
 -define(METHOD_POST, <<"POST">>).
 
--type gun_opts() :: gun:opts().
 -type method() :: binary().
 -type req_headers() :: gun:req_headers().
--type resp() :: {ok, {status(), resp_headers(), binary() | no_data}} | {error, Reason::any()}.
+-type resp() :: {ok, {status(), resp_headers(), binary()|no_data}} | {timeout, term()} | {error, Reason::any()}.
 -type resp_headers() :: gun:resp_headers().
 -type status() :: integer().
 -type url() :: string().
@@ -40,13 +39,13 @@ get(Url, Headers) when is_list(Headers) ->
 get(Url, Timeout) ->
     get(Url, [], Timeout).
 
--spec get(Url::url(), Headers::req_headers(), Opts::gun_opts()|timeout()) -> resp().
+-spec get(Url::url(), Headers::req_headers(), Opts::gun_req_opts()|timeout()) -> resp().
 get(Url, Headers, Opts) when is_map(Opts) ->
     get(Url, Headers, Opts, ?DEFAULT_REQUEST_TIMEOUT);
 get(Url, Headers, Timeout) ->
     get(Url, Headers, #{}, Timeout).
 
--spec get(Url::url(), Headers::req_headers(), Opts::gun_opts(), Timeout::timeout()) -> resp().
+-spec get(Url::url(), Headers::req_headers(), Opts::gun_req_opts(), Timeout::timeout()) -> resp().
 get(Url, Headers, Opts, Timeout) ->
     request(?METHOD_GET, Url, Headers, <<>>, Opts, Timeout).
 
@@ -58,13 +57,13 @@ post(Url, Headers) ->
 post(Url, Headers, Body) ->
     post(Url, Headers, Body, #{}).
 
--spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts()|timeout()) -> resp().
+-spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_req_opts()|timeout()) -> resp().
 post(Url, Headers, Body, Opts) when is_map(Opts) ->
     post(Url, Headers, Body, Opts, ?DEFAULT_REQUEST_TIMEOUT);
 post(Url, Headers, Body, Timeout) ->
     post(Url, Headers, Body, #{}, Timeout).
 
--spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_opts(), Timeout::timeout()) -> resp().
+-spec post(Url::url(), Headers::req_headers(), Body::binary(), Opts::gun_req_opts(), Timeout::timeout()) -> resp().
 post(Url, Headers, Body, Opt, Timeout) ->
     request(?METHOD_POST, Url, Headers, Body, Opt, Timeout).
 
@@ -73,88 +72,97 @@ post(Url, Headers, Body, Opt, Timeout) ->
         Url::url(),
         Headers::req_headers(),
         Body::binary() | no_data,
-        Opts::gun_opts(),
+        Opts::gun_req_opts(),
         Timeout0::timeout()
        ) -> resp().
 request(Method, Url, Headers, Body, Opts, Timeout0) ->
     case honey_pool_uri:parse(Url) of
         {ok, U} ->
+            HostInfo = {U#uri.host, U#uri.port, U#uri.transport},
             {Elapsed, Checkout} = timer:tc(
                                     fun checkout/2,
-                                    [{U#uri.host, U#uri.port, U#uri.transport},
-                                     Timeout0]),
+                                    [HostInfo,
+                                     Timeout0]
+                                   ),
             case Checkout of
-                {ok, {ReturnTo, Pid}} ->
+                {ok, {Pid, _} = Conn} ->
                     Result = do_request(
-                               Pid,
+                               Conn,
                                Method,
                                U#uri.pathquery,
                                Headers,
                                Body,
                                Opts,
-                               next_timeout(Timeout0, Elapsed)),
+                               next_timeout(Timeout0, Elapsed)
+                              ),
                     case Result of
                         {ok, {Status, _, _}} ->
-                            ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~.10b", [self(), Pid, Method, Url, Status]);
+                            ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~.10b", [self(), Pid, Method, Url, Status]),
+                            checkin(HostInfo, Conn);
+                        {error, {timeout, _}} = TimeoutErr ->
+                            ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, TimeoutErr]),
+                            checkin(HostInfo, Conn);
                         ReqErr ->
-                            ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, ReqErr])
+                            ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, ReqErr]),
+                            cleanup(Conn)
                     end,
-                    checkin(ReturnTo, Pid),
                     Result;
                 {error, Reason} ->
-                    {error, {checkout_error, Reason}}
+                    {error, {checkout, Reason}}
             end;
         {error, Reason} ->
-            {error, {url_error, Reason}}
+            {error, {uri, Reason}}
     end.
 
 -spec do_request(
-        Pid::pid(),
+        Conn::conn(),
         Method::method(),
         Path::url(),
         Headers::req_headers(),
         Body::iodata(),
-        Opts::gun:req_opts(),
+        Opts::gun_req_opts(),
         Timeout0::timeout()
        ) -> resp().
-do_request(Pid, Method, Path, Headers, Body, Opts, Timeout0) ->
+do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout0) ->
     ReqHeaders = headers(Headers),
     StreamRef = gun:request(Pid, Method, Path, ReqHeaders, Body, Opts),
-    Resp = case timer:tc(
-                  fun gun:await/3,
-                  [Pid, StreamRef, Timeout0]) of
-               {_Elapsed,
-                {response, fin, Status, RespHeaders}} ->
+    {Elapsed, Result}
+    = timer:tc(
+        fun gun:await/4,
+        [Pid, StreamRef, Timeout0, MRef]
+       ),
+    Resp = case Result of
+               {response, fin, Status, RespHeaders} ->
                    {ok, {Status, RespHeaders, no_data}};
-               {Elapsed,
-                {response, nofin, 200, RespHeaders}} ->
-                   case gun:await_body(
-                          Pid,
-                          StreamRef,
-                          next_timeout(Timeout0, Elapsed)) of
+               {response, nofin, 200, RespHeaders} ->
+                   %% read body only when status code is 200
+                   Timeout1 = next_timeout(Timeout0, Elapsed),
+                   case gun:await_body(Pid, StreamRef, Timeout1, MRef) of
                        {ok, RespBody} ->
                            {ok, {200, RespHeaders, RespBody}};
-                       Err ->
-                           Err
+                       {error, timeout} ->
+                           gun:cancel(Pid, StreamRef),
+                           {error, {timeout, await_body}};
+                       {error, Reason} ->
+                           gun:cancel(Pid, StreamRef),
+                           {error, {await_body, Reason}}
                    end;
-               {_Elapsed,
-                {response, nofin, Status, RespHeaders}} ->
+               {response, nofin, Status, RespHeaders} ->
+                   gun:cancel(Pid, StreamRef),
                    {ok, {Status, RespHeaders, no_data}};
-               {_Elapsed,
-                {error,{stream_error,
-                        {stream_error,protocol_error,
-                         'Content-length header received in a 204 response. (RFC7230 3.3.2)'}
-                       }}} ->
+               {error,{stream_error,
+                       {stream_error,protocol_error,
+                        'Content-length header received in a 204 response. (RFC7230 3.3.2)'}
+                      }} ->
                    %% there exist servers that return content-length header
                    {ok, {204, [], no_data}};
-               {_Elapsed,
-                {error, Reason}} ->
-                   {error, Reason};
-               {_Elapsed, V} ->
+               {error, timeout} ->
                    gun:cancel(Pid, StreamRef),
-                   {error, {unsupported, V}}
+                   {error, {timeout, await}};
+               {error, Reason} ->
+                   gun:cancel(Pid, StreamRef),
+                   {error, {await, Reason}}
            end,
-    gun:flush(StreamRef),
     ?LOG_DEBUG("(~p) conn: ~p, request: ~p, response: ~p",
                [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
@@ -177,45 +185,48 @@ next_timeout(Timeout0, MicroSec) ->
             0
     end.
 
--spec checkout(
-        HostInfo::hostinfo(),
-        Timeout0::timeout()
-       ) -> {ok, {ReturnTo::pid(), Pid::pid()}} | {error, Reason::term()}.
+-spec checkout(HostInfo::hostinfo(), Timeout0::timeout()) -> {ok, Conn::conn()} | {error, Reason::term()}.
 checkout(HostInfo, Timeout0) ->
-    try timer:tc(
-          fun wpool:call/4,
-          [?WORKER,
-           {checkout, HostInfo},
-           available_worker,
-           Timeout0]) of
-        {_Elapsed,
-         {ReturnTo, {ok, Pid}}} ->
-            {ok, {ReturnTo, Pid}};
-        {Elapsed,
-         {ReturnTo, {awaiting, Pid}}} ->
+    {Elapsed, Result}
+    = timer:tc(
+        fun wpool:call/4,
+        [?WORKER, {checkout, HostInfo}, best_worker, Timeout0]
+       ),
+    try Result of
+        {await_up, {ReplyTo, Pid}} ->
+            MRef = monitor(process, Pid),
             Timeout1 = next_timeout(Timeout0, Elapsed),
-            receive
+            case gun:await_up(Pid, Timeout1, MRef) of
                 {ok, _} ->
-                    {ok, {ReturnTo, Pid}};
-                Err ->
-                    %% received unexpected -> maybe next time
-                    checkin(ReturnTo, Pid),
-                    {error, Err}
-            after
-                Timeout1 ->
-                    %% timeout exceeded -> maybe next time
-                    checkin(ReturnTo, Pid),
-                    {error, await_timeout}
-            end
+                    {ok, {Pid, MRef}};
+                {error, timeout} ->
+                    %% even on timeout, let gun continue for the future use
+                    demonitor(MRef),
+                    ReplyTo ! {cancel_await_up, Pid},
+                    {error, {timeout, await_up}};
+                {error, Reason} ->
+                    cleanup({Pid, MRef}),
+                    {error, {await_up, Reason}}
+            end;
+        {ok, Pid} ->
+            {ok, {Pid, monitor(process, Pid)}};
+        {error, Reason} ->
+            {error, {pool_checkout, Reason}}
     catch
         _:Err ->
-            {error, Err}
+            {error, {checkout, Err}}
     end.
 
--spec checkin(ReturnTo::pid(), Pid::pid()) -> ok.
-checkin(ReturnTo, Pid) ->
-    gun:flush(Pid), %% flush before check-in
-    ReturnTo ! {checkin, Pid},
+-spec checkin(HostInfo::hostinfo(), Conn::conn()) -> ok.
+checkin(HostInfo, {Pid, MRef}) ->
+    demonitor(MRef, [flush]),
+    gun:flush(Pid),
+    wpool:cast(?WORKER, {checkin, HostInfo, Pid}).
+
+-spec cleanup(Conn::conn()) -> ok.
+cleanup({Pid, MRef}) ->
+    demonitor(MRef, [flush]),
+    gun:close(Pid),
     ok.
 
 -spec dump_state() -> [map()].
@@ -227,103 +238,18 @@ dump_state() ->
 summarize_state() ->
     [summarize_state(S) || S <- dump_state()].
 
-summarize_state(#{host_conns := HC, conn_host := CH}) ->
-    HostConns = lists:foldl(
-                  fun({Host, Bag}, Acc) ->
-                          [{Host, summarize_bag(Bag)} | Acc]
-                  end, [], maps:to_list(HC)),
-    #{total_conns => maps:size(CH),
-      host_conns => lists:sort(fun sort_host_conns/2 , HostConns)
-     }.
-
-summarize_bag(Bag) ->
-    summarize_bag(Bag, [available_conns, in_use_conns, awaiting_conns], #{}).
-
-summarize_bag(_Bag, [], Acc) ->
-    Acc;
-summarize_bag(Bag, [H|T], Acc) ->
-    summarize_bag(
-      Bag,
-      T,
-      Acc#{H => case maps:find(H, Bag) of
-                    {ok, V} ->
-                        length(V);
-                    _ ->
-                        0
-                end}).
-
-sort_host_conns(
-  {_, #{available_conns := AA, in_use_conns := AB}},
-  {_, #{available_conns := BA, in_use_conns := BB}}
+summarize_state(
+  #{up_conns := UC,
+    await_up_conns := AC,
+    host_conns := HC}
  ) ->
-    case AB > BB of
-        false ->
-            AA > BA;
-        V ->
-            V
-    end.
-
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-summarize_bag_test_() ->
-    Cases = [
-             {"empty bag",
-              #{},
-              #{available_conns => 0, in_use_conns => 0, awaiting_conns => 0}
-             },
-             {"bag with empty lists",
-              #{available_conns => []},
-              #{available_conns => 0, in_use_conns => 0, awaiting_conns => 0}
-             },
-             {"bag with some items",
-              #{available_conns => [foo], in_use_conns => [foo, bar], awaiting_conns => [foo, bar, buz]},
-              #{available_conns => 1, in_use_conns => 2, awaiting_conns => 3}
-             }
-            ],
-    F = fun({Title, Input, Expected}) ->
-                Actual = summarize_bag(Input),
-                [{Title, ?_assertEqual(Expected, Actual)}]
-        end,
-    lists:map(F, Cases).
-
-sort_host_conns_test_() ->
-    Cases = [
-             {"empty list",
-              [],
-              []
-             },
-             {"sort by in_use_conns desc",
-              [{host1, #{available_conns => 0, in_use_conns => 1}},
-               {host2, #{available_conns => 0, in_use_conns => 2}},
-               {host3, #{available_conns => 0, in_use_conns => 3}}],
-              [host3, host2, host1]
-             },
-             {"sort by available_conns desc",
-              [{host1, #{available_conns => 1, in_use_conns => 0}},
-               {host2, #{available_conns => 2, in_use_conns => 0}},
-               {host3, #{available_conns => 3, in_use_conns => 0}}],
-              [host3, host2, host1]
-             },
-             {"sort by in_use_conns -> available_conns desc",
-              [{host1, #{available_conns => 0, in_use_conns => 0}},
-               {host2, #{available_conns => 0, in_use_conns => 1}},
-               {host3, #{available_conns => 0, in_use_conns => 2}},
-               {host4, #{available_conns => 1, in_use_conns => 0}},
-               {host5, #{available_conns => 1, in_use_conns => 1}},
-               {host6, #{available_conns => 1, in_use_conns => 2}},
-               {host7, #{available_conns => 2, in_use_conns => 0}},
-               {host8, #{available_conns => 2, in_use_conns => 1}},
-               {host9, #{available_conns => 2, in_use_conns => 2}}
-              ],
-              [host9, host6, host3, host8, host5, host2, host7, host4, host1]
-             }
-            ],
-    F = fun({Title, Input, Expected}) ->
-                Actual = [Host || {Host, _} <- lists:sort(fun sort_host_conns/2, Input)],
-                [{Title, ?_assertEqual(Expected, Actual)}]
-        end,
-    lists:map(F, Cases).
-
--endif.
+    HostConns = lists:foldl(
+                  fun({Host, Conns}, Acc) ->
+                          [{Host, length(Conns)} | Acc]
+                  end, [], maps:to_list(HC)),
+    #{total_conns => #{up => maps:size(UC),
+                       await_up => maps:size(AC)},
+      host_conns => lists:sort(
+                      fun({_, A}, {_, B}) -> A < B end,
+                      HostConns
+                     )}.

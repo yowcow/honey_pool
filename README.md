@@ -30,30 +30,29 @@ and start application `honey_pool` in your app, then try in shell:
 1> logger:set_primary_config(level, info).
 ok
 
-2> honey_pool:get("https://example.com/").
-{ok,{200,
-     [{<<"accept-ranges">>,<<"bytes">>},
-      {<<"age">>,<<"104009">>},
-      {<<"cache-control">>,<<"max-age=604800">>},
-      {<<"content-type">>,<<"text/html; charset=UTF-8">>},
-      {<<"date">>,<<"Mon, 17 Jan 2022 07:45:39 GMT">>},
-      {<<"etag">>,<<"\"3147526947\"">>},
-      {<<"expires">>,<<"Mon, 24 Jan 2022 07:45:39 GMT">>},
-      {<<"last-modified">>,<<"Thu, 17 Oct 2019 07:18:26 GMT">>},
-      {<<"server">>,<<"ECS (oxr/836E)">>},
-      {<<"vary">>,<<"Accept-Encoding">>},
-      {<<"x-cache">>,<<"HIT">>},
-      {<<"content-length">>,<<"1256">>}],
-     <<"<!doctype html>\n<html>\n<head>\n    <title>Example Domain</title>\n\n    <meta charset=\"utf-8\" />\n  "...>>}}
+2> honey_pool:dump_state().
+[#{await_up_conns => #{},host_conns => #{},up_conns => #{}},
+ #{await_up_conns => #{},host_conns => #{},up_conns => #{}},
+ #{await_up_conns => #{},host_conns => #{},up_conns => #{}}]
 
-3> honey_pool:summarize_state().
-[#{host_conns =>
-       [{{"example.com",443,tls},
-         #{available_conns => 1,awaiting_conns => 0,
-           in_use_conns => 0}}],
-   total_conns => 1},
- #{host_conns => [],total_conns => 0},
- #{host_conns => [],total_conns => 0}]
+3> honey_pool:get("http://example.com/", 100).
+{error,{checkout,{timeout,await_up}}}
+
+4> honey_pool:dump_state().
+[#{await_up_conns => #{},
+   host_conns =>
+       #{{"example.com",80,tcp} =>
+             [{<0.195.0>,#Ref<0.485877779.3106144257.39748>,
+               #Ref<0.485877779.3106144257.39749>}]},
+   up_conns => #{<0.195.0> => {"example.com",80,tcp}}},
+ #{await_up_conns => #{},host_conns => #{},up_conns => #{}},
+ #{await_up_conns => #{},host_conns => #{},up_conns => #{}}]
+
+5> honey_pool:summarize_state().
+[#{host_conns => [{{"example.com",80,tcp},1}],
+   total_conns => #{await_up => 0,up => 1}},
+ #{host_conns => [],total_conns => #{await_up => 0,up => 0}},
+ #{host_conns => [],total_conns => #{await_up => 0,up => 0}}]
 ```
 
 

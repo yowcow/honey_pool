@@ -87,7 +87,7 @@ request_test_() ->
                                           [],
                                           5),
                                ?assertMatch(
-                                  {error,timeout},
+                                  {error, {timeout, await}},
                                   Actual)
                        end},
                       {"post: timeout=infinity",

@@ -27,7 +27,7 @@ boot_server() ->
     Port = ranch:get_port(?LISTENER),
     [{apps, Apps},
      {port, Port},
-     {hostinfo, {"localhost",Port,tcp}}].
+     {hostinfo, {"localhost", Port, tcp}}].
 
 checkout_checkin_test_() ->
     {setup,
@@ -56,43 +56,36 @@ checkout_checkin_test_() ->
                        "initial checkout",
                        fun(Title) ->
                                %% checkout
-                               {ReturnTo, {awaiting, Pid}} = gen_server:call(?MODULE, {checkout, HostInfo}),
+                               {await_up, {_ReturnTo, Pid}} = gen_server:call(?MODULE, {checkout, HostInfo}),
                                Ret1 = receive
                                           V1 -> V1
                                       end,
-                               #{conn_host := ConnHost1,
-                                 host_conns := HostConns1} = gen_server:call(?MODULE, dump_state),
+                               #{await_up_conns := AwaitUpConns1,
+                                 up_conns := UpConns1,
+                                 host_conns := HostConns1
+                                } = gen_server:call(?MODULE, dump_state),
                                %% checkin
-                               ReturnTo ! {checkin, Pid},
-                               #{conn_host := ConnHost2,
-                                 host_conns := HostConns2} = gen_server:call(?MODULE, dump_state),
+                               gen_server:cast(?MODULE, {checkin, HostInfo, Pid}),
+                               #{await_up_conns := AwaitUpConns2,
+                                 up_conns := UpConns2,
+                                 host_conns := HostConns2
+                                } = gen_server:call(?MODULE, dump_state),
                                %% tests
                                [
                                 {Title++": receive",
-                                 ?_assertEqual({ok, http}, Ret1)},
-                                {Title++": conn_host after checkout",
-                                 ?_assertMatch(
-                                    #{Pid := HostInfo},
-                                    ConnHost1)},
-                                {Title++": host_conns after checkout",
-                                 ?_assertMatch(
-                                    #{HostInfo := #{
-                                                    awaiting_conns := [],
-                                                    in_use_conns := [{{Pid, _}, _tref}]
-                                                   }},
-                                    HostConns1)},
-                                {Title++": conn_host after checkin",
-                                 ?_assertMatch(
-                                    #{Pid := HostInfo},
-                                    ConnHost2)},
+                                 ?_assertEqual({gun_up, Pid, http}, Ret1)},
+                                {Title++": up_conns is empty after checkout",
+                                 ?_assertMatch(#{}, UpConns1)},
+                                {Title++": await_up_conns is empty after checkout",
+                                 ?_assertMatch(#{}, AwaitUpConns1)},
+                                {Title++": host_conns is empty after checkout",
+                                 ?_assertMatch(#{}, HostConns1)},
+                                {Title++": up_conns has pid after checkin",
+                                 ?_assertMatch(#{Pid := HostInfo}, UpConns2)},
+                                {Title++": await_up_conns is empty after checkin",
+                                 ?_assertMatch(#{}, AwaitUpConns2)},
                                 {Title++": host_conns after checkin",
-                                 ?_assertMatch(
-                                    #{HostInfo := #{
-                                                    awaiting_conns := [],
-                                                    in_use_conns := [],
-                                                    available_conns := [{{Pid, _}, _tref}]
-                                                   }},
-                                    HostConns2)}
+                                 ?_assertMatch(#{HostInfo := [{Pid, _, _tref}]}, HostConns2)}
                                ]
                        end
                       },
@@ -100,38 +93,31 @@ checkout_checkin_test_() ->
                        "second checkout",
                        fun(Title) ->
                                %% checkout
-                               {ReturnTo, {ok, Pid}} = gen_server:call(?MODULE, {checkout, HostInfo}),
-                               #{conn_host := ConnHost1,
-                                 host_conns := HostConns1} = gen_server:call(?MODULE, dump_state),
+                               {ok, Pid} = gen_server:call(?MODULE, {checkout, HostInfo}),
+                               #{await_up_conns := AwaitUpConns1,
+                                 up_conns := UpConns1,
+                                 host_conns := HostConns1
+                                } = gen_server:call(?MODULE, dump_state),
                                %% checkin
-                               ReturnTo ! {checkin, Pid},
-                               #{conn_host := ConnHost2,
-                                 host_conns := HostConns2} = gen_server:call(?MODULE, dump_state),
+                               gen_server:cast(?MODULE, {checkin, HostInfo, Pid}),
+                               #{await_up_conns := AwaitUpConns2,
+                                 up_conns := UpConns2,
+                                 host_conns := HostConns2
+                                } = gen_server:call(?MODULE, dump_state),
                                %% tests
                                [
-                                {Title++": conn_host after checkout",
-                                 ?_assertMatch(
-                                    #{Pid := HostInfo},
-                                    ConnHost1)},
-                                {Title++": host_conns after checkout",
-                                 ?_assertMatch(
-                                    #{HostInfo := #{
-                                                    awaiting_conns := [],
-                                                    in_use_conns := [{{Pid, _}, _tref}]
-                                                   }},
-                                    HostConns1)},
-                                {Title++": conn_host after checkin",
-                                 ?_assertMatch(
-                                    #{Pid := HostInfo},
-                                    ConnHost2)},
+                                {Title++": up_conns is empty after checkout",
+                                 ?_assertMatch(#{}, UpConns1)},
+                                {Title++": await_up_conns is empty after checkout",
+                                 ?_assertMatch(#{}, AwaitUpConns1)},
+                                {Title++": host_conns is empty after checkout",
+                                 ?_assertMatch(#{}, HostConns1)},
+                                {Title++": up_conns has pid after checkin",
+                                 ?_assertMatch(#{Pid := HostInfo}, UpConns2)},
+                                {Title++": await_up_conns is empty after checkin",
+                                 ?_assertMatch(#{}, AwaitUpConns2)},
                                 {Title++": host_conns after checkin",
-                                 ?_assertMatch(
-                                    #{HostInfo := #{
-                                                    awaiting_conns := [],
-                                                    in_use_conns := [],
-                                                    available_conns := [{{Pid, _}, _tref}]
-                                                   }},
-                                    HostConns2)}
+                                 ?_assertMatch(#{HostInfo := [{Pid, _, _tref}]}, HostConns2)}
                                ]
                        end
                       },
@@ -139,38 +125,21 @@ checkout_checkin_test_() ->
                        "sudden down",
                        fun(Title) ->
                                %% checkout
-                               {_ReturnTo, {ok, Pid}} = gen_server:call(?MODULE, {checkout, HostInfo}),
-                               #{conn_host := ConnHost1,
-                                 host_conns := HostConns1} = gen_server:call(?MODULE, dump_state),
+                               {ok, Pid} = gen_server:call(?MODULE, {checkout, HostInfo}),
                                %% closing conn
                                gun:close(Pid),
-                               #{conn_host := ConnHost2,
-                                 host_conns := HostConns2} = gen_server:call(?MODULE, dump_state),
+                               #{await_up_conns := AwaitUpConns,
+                                 up_conns := UpConns,
+                                 host_conns := HostConns
+                                } = gen_server:call(?MODULE, dump_state),
                                %% tests
                                [
-                                {Title++": conn_host after checkout",
-                                 ?_assertMatch(
-                                    #{Pid := HostInfo},
-                                    ConnHost1)},
-                                {Title++": host_conns after checkout",
-                                 ?_assertMatch(
-                                    #{HostInfo := #{
-                                                    awaiting_conns := [],
-                                                    in_use_conns := [{{Pid, _}, _tref}]
-                                                   }},
-                                    HostConns1)},
-                                {Title++": conn_host after close",
-                                 ?_assertEqual(
-                                    #{},
-                                    ConnHost2)},
-                                {Title++": host_conns after close",
-                                 ?_assertEqual(
-                                    #{HostInfo => #{
-                                                    awaiting_conns => [],
-                                                    in_use_conns => [],
-                                                    available_conns => []
-                                                   }},
-                                    HostConns2)}
+                                {Title++": up_conns is empty after down",
+                                 ?_assertMatch(#{}, UpConns)},
+                                {Title++": await_up_conns is empty after down",
+                                 ?_assertMatch(#{}, AwaitUpConns)},
+                                {Title++": host_conns is empty after down",
+                                 ?_assertMatch(#{}, HostConns)}
                                ]
                        end
                       },
@@ -178,41 +147,36 @@ checkout_checkin_test_() ->
                        "after idle_timeout (500 ms)",
                        fun(Title) ->
                                %% checkout
-                               {_ReturnTo, {awaiting, Pid}} = gen_server:call(?MODULE, {checkout, HostInfo}),
-                               {ok, http} = receive
-                                                V1 -> V1
-                                            end,
-                               #{conn_host := ConnHost1,
-                                 host_conns := HostConns1} = gen_server:call(?MODULE, dump_state),
+                               {await_up, {_ReturnTo, Pid}} = gen_server:call(?MODULE, {checkout, HostInfo}),
+                               {gun_up, Pid, http} = receive
+                                                         V1 -> V1
+                                                     end,
+                               %% checkin
+                               gen_server:cast(?MODULE, {checkin, HostInfo, Pid}),
+                               #{await_up_conns := AwaitUpConns1,
+                                 up_conns := UpConns1,
+                                 host_conns := HostConns1
+                                } = gen_server:call(?MODULE, dump_state),
                                %% idle_timeout (with extra 250 ms)
                                timer:sleep(750),
-                               #{conn_host := ConnHost2,
-                                 host_conns := HostConns2} = gen_server:call(?MODULE, dump_state),
+                               #{await_up_conns := AwaitUpConns2,
+                                 up_conns := UpConns2,
+                                 host_conns := HostConns2
+                                } = gen_server:call(?MODULE, dump_state),
                                %% tests
                                [
-                                {Title++": conn_host after checkout",
-                                 ?_assertMatch(
-                                    #{Pid := HostInfo},
-                                    ConnHost1)},
-                                {Title++": host_conns after checkout",
-                                 ?_assertMatch(
-                                    #{HostInfo := #{
-                                                    awaiting_conns := [],
-                                                    in_use_conns := [{{Pid, _}, _tref}]
-                                                   }},
-                                    HostConns1)},
-                                {Title++": conn_host after idle_timeout",
-                                 ?_assertEqual(
-                                    #{},
-                                    ConnHost2)},
-                                {Title++": host_conns after idle_timeout",
-                                 ?_assertEqual(
-                                    #{HostInfo => #{
-                                                    awaiting_conns => [],
-                                                    in_use_conns => [],
-                                                    available_conns => []
-                                                   }},
-                                    HostConns2)}
+                                {Title++": up_conns has pid after checkin",
+                                 ?_assertMatch(#{Pid := HostInfo}, UpConns1)},
+                                {Title++": await_up_conns is empty after checkin",
+                                 ?_assertMatch(#{}, AwaitUpConns1)},
+                                {Title++": host_conns after checkin",
+                                 ?_assertMatch(#{HostInfo := [{Pid, _, _tref}]}, HostConns1)},
+                                {Title++": up_conns is empty after idle timeout",
+                                 ?_assertMatch(#{}, UpConns2)},
+                                {Title++": await_up_conns is empty after idle timeout",
+                                 ?_assertMatch(#{}, AwaitUpConns2)},
+                                {Title++": host_conns is empty after idle timeout",
+                                 ?_assertMatch(#{}, HostConns2)}
                                ]
                        end
                       }
