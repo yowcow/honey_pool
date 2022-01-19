@@ -136,14 +136,11 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout0) ->
                        {ok, RespBody} ->
                            {ok, {200, RespHeaders, RespBody}};
                        {error, timeout} ->
-                           gun:cancel(Pid, StreamRef),
                            {error, {timeout, await_body}};
                        {error, Reason} ->
-                           gun:cancel(Pid, StreamRef),
                            {error, {await_body, Reason}}
                    end;
                {response, nofin, Status, RespHeaders} ->
-                   gun:cancel(Pid, StreamRef),
                    {ok, {Status, RespHeaders, no_data}};
                {error,{stream_error,
                        {stream_error,protocol_error,
@@ -152,13 +149,16 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout0) ->
                    %% there exist servers that return content-length header
                    {ok, {204, [], no_data}};
                {error, timeout} ->
-                   gun:cancel(Pid, StreamRef),
                    {error, {timeout, await}};
                {error, Reason} ->
-                   gun:cancel(Pid, StreamRef),
                    {error, {await, Reason}}
            end,
-    gun:flush(StreamRef),
+    case gun:stream_info(Pid, StreamRef) of
+        {ok, #{state := running}} ->
+            gun:cancel(Pid, StreamRef);
+        _ ->
+            ok
+    end,
     ?LOG_DEBUG("(~p) conn: ~p, request: ~p, response: ~p",
                [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
