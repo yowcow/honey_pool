@@ -68,14 +68,14 @@ handle_cast({checkin, HostInfo, Pid}, State) ->
     ?LOG_DEBUG("(~p) checkin a conn: ~p -> ~p", [self(), HostInfo, Pid]),
     ok = conn_checkin(HostInfo, Pid, State),
     {noreply, State};
+handle_cast({cancel_await_up, Pid} = Req, State) ->
+    ?LOG_DEBUG("(~p) cancel await_up: ~p", [self(), Req]),
+    ok = conn_cancel_await_up(Pid, State),
+    {noreply, State};
 handle_cast(Req, State) ->
     ?LOG_WARNING("(~p) unhandled cast (~p, ~p)", [self(), Req, State]),
     {noreply, State}.
 
-handle_info({cancel_await_up, Pid} = Req, State) ->
-    ?LOG_DEBUG("(~p) cancel await_up: ~p", [self(), Req]),
-    ok = conn_cancel_await_up(Pid, State),
-    {noreply, State};
 handle_info({idle_timeout, Pid} = Req, State) ->
     ?LOG_DEBUG("(~p) idle timeout: ~p", [self(), Req]),
     ok = gun:close(Pid),
