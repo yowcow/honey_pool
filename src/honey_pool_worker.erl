@@ -115,8 +115,8 @@ cancel_idle_timer(TRef) ->
     ok.
 
 -spec conn_checkout(HostInfo::hostinfo(), Requester::pid(), State::state()) ->
-    {ok, Pid::pid()} |
-    {await_up, {ReplyTo::pid(), Pid::pid()}} |
+    {ok, {ReturnTo::pid(), Pid::pid()}} |
+    {await_up, {ReturnTo::pid(), Pid::pid()}} |
     {error, Reason::term()}.
 conn_checkout(HostInfo, Requester, #state{tabid = TabId} = State) ->
     case ets:lookup(TabId, {hostinfo, HostInfo}) of
@@ -129,7 +129,7 @@ conn_checkout(HostInfo, Requester, #state{tabid = TabId} = State) ->
             ets:delete(TabId, {up, Pid}),
             cancel_idle_timer(TRef),
             demonitor(MRef),
-            {ok, Pid}
+            {ok, {self(), Pid}}
     end.
 
 -spec conn_open(HostInfo::hostinfo(), Requester::pid(), State::state()) ->

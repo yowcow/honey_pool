@@ -7,11 +7,6 @@
          dump_state/0, summarize_state/0
         ]).
 
--export([
-         checkout/2,
-         checkin/2
-        ]).
-
 -include_lib("kernel/include/logger.hrl").
 -include("include/honey_pool.hrl").
 
@@ -85,7 +80,7 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
                                      Timeout0]
                                    ),
             case Checkout of
-                {ok, {Pid, _} = Conn} ->
+                {ok, {ReturnTo, {Pid, _} = Conn}} ->
                     Result = do_request(
                                Conn,
                                Method,
@@ -98,10 +93,10 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
                     case Result of
                         {ok, {Status, _, _}} ->
                             ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~.10b", [self(), Pid, Method, Url, Status]),
-                            checkin(HostInfo, Conn);
+                            checkin(ReturnTo, HostInfo, Conn);
                         {error, {timeout, _}} = TimeoutErr ->
                             ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, TimeoutErr]),
-                            checkin(HostInfo, Conn);
+                            checkin(ReturnTo, HostInfo, Conn);
                         ReqErr ->
                             ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, ReqErr]),
                             cleanup(Conn)
@@ -186,7 +181,7 @@ next_timeout(Timeout0, MicroSec) ->
             0
     end.
 
--spec checkout(HostInfo::hostinfo(), Timeout0::timeout()) -> {ok, Conn::conn()} | {error, Reason::term()}.
+-spec checkout(HostInfo::hostinfo(), Timeout0::timeout()) -> {ok, {ReturnTo::pid(), Conn::conn()}} | {error, Reason::term()}.
 checkout(HostInfo, Timeout0) ->
     {Elapsed, Result}
     = timer:tc(
@@ -194,23 +189,23 @@ checkout(HostInfo, Timeout0) ->
         [?WORKER, {checkout, HostInfo}, best_worker, Timeout0]
        ),
     try Result of
-        {await_up, {ReplyTo, Pid}} ->
+        {await_up, {ReturnTo, Pid}} ->
             MRef = monitor(process, Pid),
             Timeout1 = next_timeout(Timeout0, Elapsed),
             case gun:await_up(Pid, Timeout1, MRef) of
                 {ok, _} ->
-                    {ok, {Pid, MRef}};
+                    {ok, {ReturnTo, {Pid, MRef}}};
                 {error, timeout} ->
                     %% even on timeout, let gun continue for the future use
                     demonitor(MRef),
-                    ReplyTo ! {cancel_await_up, Pid},
+                    gen_server:cast(ReturnTo, {cancel_await_up, Pid}),
                     {error, {timeout, await_up}};
                 {error, Reason} ->
                     cleanup({Pid, MRef}),
                     {error, {await_up, Reason}}
             end;
-        {ok, Pid} ->
-            {ok, {Pid, monitor(process, Pid)}};
+        {ok, {ReturnTo, Pid}} ->
+            {ok, {ReturnTo, {Pid, monitor(process, Pid)}}};
         {error, Reason} ->
             {error, {pool_checkout, Reason}}
     catch
@@ -218,11 +213,11 @@ checkout(HostInfo, Timeout0) ->
             {error, {checkout, Err}}
     end.
 
--spec checkin(HostInfo::hostinfo(), Conn::conn()) -> ok.
-checkin(HostInfo, {Pid, MRef}) ->
+-spec checkin(ReturnTo::pid(), HostInfo::hostinfo(), Conn::conn()) -> ok.
+checkin(ReturnTo, HostInfo, {Pid, MRef}) ->
     demonitor(MRef, [flush]),
     gun:flush(Pid),
-    wpool:cast(?WORKER, {checkin, HostInfo, Pid}).
+    gen_server:cast(ReturnTo, {checkin, HostInfo, Pid}).
 
 -spec cleanup(Conn::conn()) -> ok.
 cleanup({Pid, MRef}) ->
