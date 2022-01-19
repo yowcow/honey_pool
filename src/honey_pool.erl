@@ -153,12 +153,6 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout0) ->
                {error, Reason} ->
                    {error, {await, Reason}}
            end,
-    case gun:stream_info(Pid, StreamRef) of
-        {ok, #{state := running}} ->
-            gun:cancel(Pid, StreamRef);
-        _ ->
-            ok
-    end,
     ?LOG_DEBUG("(~p) conn: ~p, request: ~p, response: ~p",
                [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
