@@ -149,8 +149,12 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout0) ->
                        {stream_error,protocol_error,
                         'Content-length header received in a 204 response. (RFC7230 3.3.2)'}
                       }} ->
-                   %% there exist servers that return content-length header
+                   %% there exist servers that return content-length header and handle such responses as ordinary 204 response
+                   gun:cancel(Pid, StreamRef),
                    {ok, {204, [], no_data}};
+               {error,{stream_error, _} = Reason} ->
+                   gun:cancel(Pid, StreamRef),
+                   {error, {await, Reason}};
                {error, timeout} ->
                    {error, {timeout, await}};
                {error, Reason} ->
