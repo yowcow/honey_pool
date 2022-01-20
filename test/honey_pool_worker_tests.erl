@@ -56,7 +56,7 @@ checkout_checkin_test_() ->
                        "initial checkout",
                        fun(Title) ->
                                %% checkout
-                               {await_up, {ReturnTo, Pid}} = gen_server:call(?MODULE, {checkout, HostInfo}),
+                               {ok, {await_up, {ReturnTo, Pid}}} = gen_server:call(?MODULE, {checkout, HostInfo}),
                                Ret1 = receive
                                           V1 -> V1
                                       end,
@@ -65,7 +65,7 @@ checkout_checkin_test_() ->
                                  host_conns := HostConns1
                                 } = gen_server:call(?MODULE, dump_state),
                                %% checkin
-                               gen_server:cast(ReturnTo, {checkin, HostInfo, Pid}),
+                               honey_pool:return_to(ReturnTo, Pid, {checkin, HostInfo, Pid}),
                                #{await_up_conns := AwaitUpConns2,
                                  up_conns := UpConns2,
                                  host_conns := HostConns2
@@ -93,13 +93,13 @@ checkout_checkin_test_() ->
                        "second checkout",
                        fun(Title) ->
                                %% checkout
-                               {ok, {ReturnTo, Pid}} = gen_server:call(?MODULE, {checkout, HostInfo}),
+                               {ok, {up, {ReturnTo, Pid}}} = gen_server:call(?MODULE, {checkout, HostInfo}),
                                #{await_up_conns := AwaitUpConns1,
                                  up_conns := UpConns1,
                                  host_conns := HostConns1
                                 } = gen_server:call(?MODULE, dump_state),
                                %% checkin
-                               gen_server:cast(ReturnTo, {checkin, HostInfo, Pid}),
+                               honey_pool:return_to(ReturnTo, Pid, {checkin, HostInfo, Pid}),
                                #{await_up_conns := AwaitUpConns2,
                                  up_conns := UpConns2,
                                  host_conns := HostConns2
@@ -125,7 +125,7 @@ checkout_checkin_test_() ->
                        "sudden down",
                        fun(Title) ->
                                %% checkout
-                               {ok, {_ReturnTo, Pid}} = gen_server:call(?MODULE, {checkout, HostInfo}),
+                               {ok, {up, {_ReturnTo, Pid}}} = gen_server:call(?MODULE, {checkout, HostInfo}),
                                %% closing conn
                                gun:close(Pid),
                                #{await_up_conns := AwaitUpConns,
@@ -147,12 +147,12 @@ checkout_checkin_test_() ->
                        "after idle_timeout (500 ms)",
                        fun(Title) ->
                                %% checkout
-                               {await_up, {ReturnTo, Pid}} = gen_server:call(?MODULE, {checkout, HostInfo}),
+                               {ok, {await_up, {ReturnTo, Pid}}} = gen_server:call(?MODULE, {checkout, HostInfo}),
                                {gun_up, Pid, http} = receive
                                                          V1 -> V1
                                                      end,
                                %% checkin
-                               gen_server:cast(ReturnTo, {checkin, HostInfo, Pid}),
+                               honey_pool:return_to(ReturnTo, Pid, {checkin, HostInfo, Pid}),
                                #{await_up_conns := AwaitUpConns1,
                                  up_conns := UpConns1,
                                  host_conns := HostConns1

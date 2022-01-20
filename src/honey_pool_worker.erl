@@ -22,7 +22,6 @@
                                         keepalive => 30 * 1000 %% 30 sec
                                        }
                        }).
-
 -define(ETS_TABLE, honey_pool).
 
 %%
@@ -115,25 +114,31 @@ cancel_idle_timer(TRef) ->
     ok.
 
 -spec conn_checkout(HostInfo::hostinfo(), Requester::pid(), State::state()) ->
-    {ok, {ReturnTo::pid(), Pid::pid()}} |
-    {await_up, {ReturnTo::pid(), Pid::pid()}} |
+    {ok, {up|await_up, {ReturnTo::pid(), Pid::pid()}}} |
     {error, Reason::term()}.
 conn_checkout(HostInfo, Requester, #state{tabid = TabId} = State) ->
-    case ets:lookup(TabId, {hostinfo, HostInfo}) of
-        [] ->
-            conn_open(HostInfo, Requester, State);
-        [{_, []}] ->
-            conn_open(HostInfo, Requester, State);
-        [{_, [{Pid, MRef, TRef}|T]}] ->
-            ets:insert(TabId, {{hostinfo, HostInfo}, T}),
-            ets:delete(TabId, {up, Pid}),
-            cancel_idle_timer(TRef),
-            demonitor(MRef),
-            {ok, {self(), Pid}}
+    Result = case ets:lookup(TabId, {hostinfo, HostInfo}) of
+                 [] ->
+                     conn_open(HostInfo, Requester, State);
+                 [{_, []}] ->
+                     conn_open(HostInfo, Requester, State);
+                 [{_, [{P, MRef, TRef}|T]}] ->
+                     ets:insert(TabId, {{hostinfo, HostInfo}, T}),
+                     ets:delete(TabId, {up, P}),
+                     cancel_idle_timer(TRef),
+                     demonitor(MRef),
+                     {ok, {up, P}}
+             end,
+    case Result of
+        {ok, {Status, Pid}} ->
+            gun:set_owner(Pid, Requester),
+            {ok, {Status, {self(), Pid}}};
+        _ ->
+            Result
     end.
 
 -spec conn_open(HostInfo::hostinfo(), Requester::pid(), State::state()) ->
-    {await_up, {ReplyTo::pid(), Pid::pid()}} |
+    {ok, {await_up, Pid::pid()}} |
     {error, Reason::term()}.
 conn_open(
   {Host, Port, Transport},
@@ -144,7 +149,7 @@ conn_open(
     case gun:open(Host, Port, GunOpts) of
         {ok, Pid} ->
             ets:insert(TabId, {{await_up, Pid}, {Requester, monitor(process, Pid)}}),
-            {await_up, {self(), Pid}};
+            {ok, {await_up, Pid}};
         {error, Reason} ->
             {error, {gun_open, Reason}}
     end.

@@ -4,6 +4,7 @@
          get/1, get/2, get/3, get/4,
          post/2, post/3, post/4, post/5,
          request/6,
+         return_to/3,
          dump_state/0, summarize_state/0
         ]).
 
@@ -183,7 +184,7 @@ checkout(HostInfo, Timeout0) ->
         [?WORKER, {checkout, HostInfo}, best_worker, Timeout0]
        ),
     try Result of
-        {await_up, {ReturnTo, Pid}} ->
+        {ok, {await_up, {ReturnTo, Pid}}} ->
             MRef = monitor(process, Pid),
             Timeout1 = next_timeout(Timeout0, Elapsed),
             case gun:await_up(Pid, Timeout1, MRef) of
@@ -191,14 +192,13 @@ checkout(HostInfo, Timeout0) ->
                     {ok, {ReturnTo, {Pid, MRef}}};
                 {error, timeout} ->
                     %% even on timeout, let gun continue for the future use
-                    demonitor(MRef),
-                    gen_server:cast(ReturnTo, {cancel_await_up, Pid}),
+                    cancel_await_up(ReturnTo, {Pid, MRef}),
                     {error, {timeout, await_up}};
                 {error, Reason} ->
                     cleanup({Pid, MRef}),
                     {error, {await_up, Reason}}
             end;
-        {ok, {ReturnTo, Pid}} ->
+        {ok, {up, {ReturnTo, Pid}}} ->
             {ok, {ReturnTo, {Pid, monitor(process, Pid)}}};
         {error, Reason} ->
             {error, {pool_checkout, Reason}}
@@ -207,17 +207,28 @@ checkout(HostInfo, Timeout0) ->
             {error, {checkout, Err}}
     end.
 
+-spec cancel_await_up(ReturnTo::pid(), Conn::conn()) -> ok.
+cancel_await_up(ReturnTo, {Pid, MRef}) ->
+    demonitor(MRef),
+    gun:flush(Pid),
+    return_to(ReturnTo, Pid, {cancel_await_up, Pid}).
+
 -spec checkin(ReturnTo::pid(), HostInfo::hostinfo(), Conn::conn()) -> ok.
 checkin(ReturnTo, HostInfo, {Pid, MRef}) ->
     demonitor(MRef, [flush]),
     gun:flush(Pid),
-    gen_server:cast(ReturnTo, {checkin, HostInfo, Pid}).
+    return_to(ReturnTo, Pid, {checkin, HostInfo, Pid}).
 
 -spec cleanup(Conn::conn()) -> ok.
 cleanup({Pid, MRef}) ->
     demonitor(MRef, [flush]),
     gun:close(Pid),
     ok.
+
+-spec return_to(ReturnTo::pid(), Pid::pid(), Msg::term()) -> ok.
+return_to(ReturnTo, Pid, Msg) ->
+    gun:set_owner(Pid, ReturnTo),
+    gen_server:cast(ReturnTo, Msg).
 
 -spec dump_state() -> [map()].
 dump_state() ->
