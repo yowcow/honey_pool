@@ -71,6 +71,16 @@ request_test_() ->
                                   {ok, {200, _, _}},
                                   Actual)
                        end},
+                      {"get: with query",
+                       fun() ->
+                               Actual = honey_pool:get(
+                                          [Url, "/status/200/delay/50?foo=${FOO}&bar=][&buz=.."],
+                                          [],
+                                          infinity),
+                               ?assertMatch(
+                                  {ok, {200, _, _}},
+                                  Actual)
+                       end},
                       {"get: delay < timeout",
                        fun() ->
                                Actual = honey_pool:get(

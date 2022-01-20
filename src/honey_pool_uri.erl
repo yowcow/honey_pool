@@ -9,7 +9,13 @@
 -spec parse(string() | binary()) -> {ok, uri()} | {error, term()}.
 parse(Uri) when is_binary(Uri) ->
     parse(binary_to_list(Uri));
-parse(Uri) ->
+parse(Uri0) ->
+    {Uri, Query} = case string:split(Uri0, "?") of
+                       [U1, U2] ->
+                           {U1, U2};
+                       [U1] ->
+                           {U1, ""}
+                   end,
     try
         Parsed = uri_string:parse(Uri),
         Transport = case maps:find(scheme, Parsed) of
@@ -21,7 +27,6 @@ parse(Uri) ->
                    {ok, V} -> V;
                    _ -> "/"
                end,
-        Query = maps:get(query, Parsed, ""),
         Port = maps:get(port, Parsed, case Transport of
                                           tls -> 443;
                                           _ -> 80

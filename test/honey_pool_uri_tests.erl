@@ -69,12 +69,19 @@ parse_uri_test_() ->
               end
              },
              {
-              <<"http://hogehoge/?hoge={HOGE}">>,
-              fun(Actual) ->
-                      ?_assertEqual({error,
-                                     {{badmap,
-                                       {error, invalid_uri, ":"}},
-                                      "http://hogehoge/?hoge={HOGE}"}}, Actual)
+              <<"http://hogehoge/?hoge=${HOGE}&fuga=..&foo=]|">>,
+              fun({ok, Actual}) ->
+                      Expected = {ok, #uri{
+                                         host = "hogehoge",
+                                         path = "/",
+                                         query = "hoge=${HOGE}&fuga=..&foo=]|",
+                                         pathquery = "/?hoge=${HOGE}&fuga=..&foo=]|",
+                                         port = 80,
+                                         transport = tcp
+                                        }},
+                      ?_assertEqual(Expected, {ok, Actual#uri{
+                                                     pathquery = lists:flatten(Actual#uri.pathquery)
+                                                    }})
               end
              }
             ],
