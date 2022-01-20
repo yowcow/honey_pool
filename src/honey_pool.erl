@@ -142,6 +142,8 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout0) ->
                            {error, {await_body, Reason}}
                    end;
                {response, nofin, Status, RespHeaders} ->
+                   %% stream is nofin but skip reading body
+                   gun:cancel(Pid, StreamRef),
                    {ok, {Status, RespHeaders, no_data}};
                {error,{stream_error,
                        {stream_error,protocol_error,

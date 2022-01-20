@@ -7,10 +7,11 @@
 -include_lib("eunit/include/eunit.hrl").
 
 init(Req0, State) ->
+    StatusCode = binary_to_integer(cowboy_req:binding(status_code, Req0)),
     Delay = binary_to_integer(cowboy_req:binding(delay_millisec, Req0)),
     timer:sleep(Delay),
     Req = cowboy_req:reply(
-            200,
+            StatusCode,
             #{<<"content-type">> => <<"text/plain">>},
             <<"Hello">>,
             Req0),
@@ -28,7 +29,7 @@ request_test_() ->
                         [cowboy, honey_pool])),
              Dispatch = cowboy_router:compile(
                           [{'_',
-                            [{"/delay/:delay_millisec", ?MODULE, []}]
+                            [{"/status/:status_code/delay/:delay_millisec", ?MODULE, []}]
                            }]),
              {ok, _} = cowboy:start_clear(
                          ?MODULE,
@@ -63,7 +64,7 @@ request_test_() ->
                       {"get: timeout=infinity",
                        fun() ->
                                Actual = honey_pool:get(
-                                          [Url, "/delay/500"],
+                                          [Url, "/status/200/delay/500"],
                                           [],
                                           infinity),
                                ?assertMatch(
@@ -73,7 +74,7 @@ request_test_() ->
                       {"get: delay < timeout",
                        fun() ->
                                Actual = honey_pool:get(
-                                          [Url, "/delay/50"],
+                                          [Url, "/status/200/delay/50"],
                                           [],
                                           1000),
                                ?assertMatch(
@@ -83,7 +84,7 @@ request_test_() ->
                       {"get: delay > timeout",
                        fun() ->
                                Actual = honey_pool:get(
-                                          [Url, "/delay/100"],
+                                          [Url, "/status/200/delay/100"],
                                           [],
                                           5),
                                ?assertMatch(
@@ -93,12 +94,23 @@ request_test_() ->
                       {"post: timeout=infinity",
                        fun() ->
                                Actual = honey_pool:post(
-                                          [Url, "/delay/500"],
+                                          [Url, "/status/200/delay/500"],
                                           [],
                                           <<"req data">>,
                                           infinity),
                                ?assertMatch(
                                   {ok, {200, _, _}},
+                                  Actual)
+                       end},
+                      {"get: status=400",
+                       fun() ->
+                               Actual = honey_pool:post(
+                                          [Url, "/status/400/delay/50"],
+                                          [],
+                                          <<"req data">>,
+                                          infinity),
+                               ?assertMatch(
+                                  {ok, {400, _, no_data}},
                                   Actual)
                        end}
                      ],
