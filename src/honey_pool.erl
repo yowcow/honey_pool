@@ -96,7 +96,7 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
                             checkin(ReturnTo, HostInfo, Conn);
                         {error, {timeout, _}} = TimeoutErr ->
                             ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, TimeoutErr]),
-                            checkin(ReturnTo, HostInfo, Conn);
+                            cleanup(Conn);
                         ReqErr ->
                             ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, ReqErr]),
                             cleanup(Conn)
@@ -149,10 +149,8 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout0) ->
                         'Content-length header received in a 204 response. (RFC7230 3.3.2)'}
                       }} ->
                    %% there exist servers that return content-length header and handle such responses as ordinary 204 response
-                   gun:cancel(Pid, StreamRef),
                    {ok, {204, [], no_data}};
                {error,{stream_error, _} = Reason} ->
-                   gun:cancel(Pid, StreamRef),
                    {error, {await, Reason}};
                {error, timeout} ->
                    {error, {timeout, await}};
