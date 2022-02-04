@@ -67,10 +67,6 @@ handle_cast({checkin, HostInfo, Pid}, State) ->
     ?LOG_DEBUG("(~p) checkin a conn: ~p -> ~p", [self(), HostInfo, Pid]),
     ok = conn_checkin(HostInfo, Pid, State),
     {noreply, State};
-handle_cast({cancel_await_up, Pid} = Req, State) ->
-    ?LOG_DEBUG("(~p) cancel await_up: ~p", [self(), Req]),
-    ok = conn_cancel_await_up(Pid, State),
-    {noreply, State};
 handle_cast(Req, State) ->
     ?LOG_WARNING("(~p) unhandled cast (~p, ~p)", [self(), Req, State]),
     {noreply, State}.
@@ -152,17 +148,6 @@ conn_open(
             {ok, {await_up, Pid}};
         {error, Reason} ->
             {error, {gun_open, Reason}}
-    end.
-
--spec conn_cancel_await_up(Pid::pid(), State::state()) -> ok.
-conn_cancel_await_up(Pid, #state{tabid = TabId}) ->
-    case ets:lookup(TabId, {await_up, Pid}) of
-        [{_, {_Requester, MRef}}] ->
-            ets:delete(TabId, {await_up, Pid}),
-            demonitor(MRef),
-            ok;
-        _ ->
-            ok
     end.
 
 -spec conn_checkin(HostInfo::hostinfo(), Pid::pid(), State::state()) -> ok.

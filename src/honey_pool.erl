@@ -194,8 +194,7 @@ checkout(HostInfo, Timeout0) ->
                 {ok, _} ->
                     {ok, {ReturnTo, {Pid, MRef}}};
                 {error, timeout} ->
-                    %% even on timeout, let gun continue for the future use
-                    cancel_await_up(ReturnTo, {Pid, MRef}),
+                    cleanup({Pid, MRef}),
                     {error, {timeout, await_up}};
                 {error, Reason} ->
                     cleanup({Pid, MRef}),
@@ -209,12 +208,6 @@ checkout(HostInfo, Timeout0) ->
         _:Err ->
             {error, {checkout, Err}}
     end.
-
--spec cancel_await_up(ReturnTo::pid(), Conn::conn()) -> ok.
-cancel_await_up(ReturnTo, {Pid, MRef}) ->
-    demonitor(MRef),
-    gun:flush(Pid),
-    return_to(ReturnTo, Pid, {cancel_await_up, Pid}).
 
 -spec checkin(ReturnTo::pid(), HostInfo::hostinfo(), Conn::conn()) -> ok.
 checkin(ReturnTo, HostInfo, {Pid, MRef}) ->
