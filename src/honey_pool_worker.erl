@@ -16,13 +16,26 @@
                         retry => 0,
                         connect_timeout => 1000,
                         http_opts => #{
-                                       keepalive => 30 * 1000 %% 30 sec
+                                       %% 30 sec
+                                       keepalive => 30 * 1000
                                       },
                         http2_opts => #{
-                                        keepalive => 30 * 1000 %% 30 sec
+                                        %% 30 sec
+                                        keepalive => 30 * 1000
                                        }
                        }).
 -define(ETS_TABLE, honey_pool).
+
+-record(conn, {
+          hostinfo :: hostinfo(),
+          state :: await_up | checked_out | checked_in,
+          requester :: requester(),
+          monitor_ref :: monitor_ref(),
+          timer_ref :: timer_ref()
+         }).
+
+-type requester() :: pid() | undefined.
+-type timer_ref() :: reference() | undefined.
 
 %%
 %% gen_server funs
@@ -43,14 +56,18 @@ terminate(Reason, State) ->
              fun(V, Acc) ->
                      case V of
                          {{pid, Pid}, _} ->
-                             [Pid|Acc];
+                             [Pid | Acc];
                          _ ->
                              Acc
                      end
-             end, [], State#state.tabid),
+             end,
+             [],
+             State#state.tabid
+            ),
     lists:map(
       fun(Pid) -> gun:close(Pid) end,
-      Pids),
+      Pids
+     ),
     ok.
 
 handle_call({checkout, HostInfo}, {Requester, _}, State) ->
@@ -60,7 +77,7 @@ handle_call({checkout, HostInfo}, {Requester, _}, State) ->
 handle_call(dump_state, _From, State) ->
     {reply, dump_state(State), State};
 handle_call(Req, From, State) ->
-    ?LOG_WARNING("(~p) unhandled call (~p, ~p, ~p)", [self(), Req, From ,State]),
+    ?LOG_WARNING("(~p) unhandled call (~p, ~p, ~p)", [self(), Req, From, State]),
     {reply, {error, no_handler}, State}.
 
 handle_cast({checkin, HostInfo, Pid}, State) ->
@@ -76,7 +93,7 @@ handle_cast(Req, State) ->
     {noreply, State}.
 
 handle_info({idle_timeout, Pid} = Req, State) ->
-    ?LOG_DEBUG("(~p) idle timeout: ~p", [self(), Req]),
+    ?LOG_DEBUG("(~p) idle_timeout: ~p", [self(), Req]),
     ok = gun:close(Pid),
     {noreply, State};
 handle_info({gun_up, Pid, Protocol} = Req, State) ->
@@ -96,101 +113,156 @@ handle_info(Req, State) ->
     ?LOG_WARNING("(~p) unhandled info (~p, ~p)", [self(), Req, State]),
     {noreply, State}.
 
-
 %%
 %% private funs
 %%
--spec idle_timer(Pid::pid(), Timeout::timeout()) -> timer_ref().
+-spec idle_timer(Pid :: pid(), Timeout :: timeout()) -> timer_ref().
 idle_timer(_Pid, infinity) ->
-    no_ref;
+    undefined;
 idle_timer(Pid, Timeout) ->
     erlang:send_after(Timeout, self(), {idle_timeout, Pid}).
 
--spec cancel_idle_timer(TRef::timer_ref()) -> ok.
-cancel_idle_timer(no_ref) ->
+-spec cancel_idle_timer(TRef :: timer_ref()) -> ok.
+cancel_idle_timer(undefined) ->
     ok;
 cancel_idle_timer(TRef) ->
     erlang:cancel_timer(TRef),
     ok.
 
--spec conn_checkout(HostInfo::hostinfo(), Requester::pid(), State::state()) ->
-    {ok, {up|await_up, {ReturnTo::pid(), Pid::pid()}}} |
-    {error, Reason::term()}.
+-spec conn_checkout(HostInfo :: hostinfo(), Requester :: pid(), State :: state()) ->
+    {ok, {up | await_up, {ReturnTo :: pid(), Pid :: pid()}}}
+    | {error, Reason :: term()}.
 conn_checkout(HostInfo, Requester, #state{tabid = TabId} = State) ->
-    Result = case ets:lookup(TabId, {hostinfo, HostInfo}) of
-                 [] ->
-                     conn_open(HostInfo, Requester, State);
-                 [{_, []}] ->
-                     conn_open(HostInfo, Requester, State);
-                 [{_, [{P, MRef, TRef}|T]}] ->
-                     ets:insert(TabId, {{hostinfo, HostInfo}, T}),
-                     ets:delete(TabId, {up, P}),
-                     cancel_idle_timer(TRef),
-                     demonitor(MRef),
-                     {ok, {up, P}}
-             end,
+    Result =
+    case ets:lookup(TabId, {pool, HostInfo}) of
+        [] ->
+            conn_open(HostInfo, Requester, State);
+        [{_, []}] ->
+            conn_open(HostInfo, Requester, State);
+        [{_, [Pid | Pids]}] ->
+            ets:insert(TabId, {{pool, HostInfo}, Pids}),
+            case ets:lookup(TabId, {pid, Pid}) of
+                [] ->
+                    {error, pid_not_found};
+                [{_, Conn}] ->
+                    cancel_idle_timer(Conn#conn.timer_ref),
+                    ets:insert(
+                      TabId,
+                      {{pid, Pid}, Conn#conn{
+                                     state = checked_out,
+                                     timer_ref = undefined
+                                    }}
+                     ),
+                    {ok, {up, Pid}}
+            end
+    end,
     case Result of
-        {ok, {Status, Pid}} ->
-            gun:set_owner(Pid, Requester),
-            {ok, {Status, {self(), Pid}}};
+        {ok, {Status, Pid1}} ->
+            %%gun:set_owner(Pid, Requester),
+            {ok, {Status, {self(), Pid1}}};
         _ ->
             Result
     end.
 
--spec conn_open(HostInfo::hostinfo(), Requester::pid(), State::state()) ->
-    {ok, {await_up, Pid::pid()}} |
-    {error, Reason::term()}.
+-spec conn_open(HostInfo :: hostinfo(), Requester :: pid(), State :: state()) ->
+    {ok, {await_up, Pid :: pid()}}
+    | {error, Reason :: term()}.
 conn_open(
   {Host, Port, Transport},
   Requester,
   #state{gun_opts = GunOpts0, tabid = TabId}
  ) ->
     GunOpts = GunOpts0#{transport => Transport},
+    HostInfo = {Host, Port, Transport},
     case gun:open(Host, Port, GunOpts) of
         {ok, Pid} ->
-            ets:insert(TabId, {{await_up, Pid}, {Requester, monitor(process, Pid)}}),
+            ets:insert(
+              TabId,
+              {{pid, Pid}, #conn{
+                              hostinfo = HostInfo,
+                              state = await_up,
+                              requester = Requester,
+                              monitor_ref = monitor(process, Pid)
+                             }}
+             ),
             {ok, {await_up, Pid}};
         {error, Reason} ->
             {error, {gun_open, Reason}}
     end.
 
--spec conn_cancel_await_up(Pid::pid(), State::state()) -> ok.
+-spec conn_cancel_await_up(Pid :: pid(), State :: state()) -> ok.
 conn_cancel_await_up(Pid, #state{tabid = TabId}) ->
-    case ets:lookup(TabId, {await_up, Pid}) of
-        [{_, {_Requester, MRef}}] ->
-            ets:delete(TabId, {await_up, Pid}),
-            demonitor(MRef),
+    case ets:lookup(TabId, {pid, Pid}) of
+        [{_, Conn}] ->
+            ets:insert(
+              TabId,
+              {{pid, Pid}, Conn#conn{
+                             requester = undefined
+                            }}
+             ),
             ok;
         _ ->
             ok
     end.
 
--spec conn_checkin(HostInfo::hostinfo(), Pid::pid(), State::state()) -> ok.
+-spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) -> ok.
 conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) ->
-    PoolConn = {Pid,
-                monitor(process, Pid),
-                idle_timer(Pid, IdleTimeout)},
-    Conns = case ets:lookup(TabId, {hostinfo, HostInfo}) of
-                [] ->
-                    [PoolConn];
-                [{_, T}] ->
-                    [PoolConn|T]
-            end,
-    ets:insert(TabId, {{hostinfo, HostInfo}, Conns}),
-    ets:insert(TabId, {{up, Pid}, HostInfo}),
+    case ets:lookup(TabId, {pid, Pid}) of
+        [] ->
+            ets:insert(
+              TabId,
+              {{pid, Pid}, #conn{
+                              hostinfo = HostInfo,
+                              state = checked_in,
+                              monitor_ref = monitor(process, Pid),
+                              timer_ref = idle_timer(Pid, IdleTimeout)
+                             }}
+             );
+        [{_, Conn}] ->
+            ets:insert(
+              TabId,
+              {{pid, Pid}, Conn#conn{
+                             state = checked_in,
+                             timer_ref = idle_timer(Pid, IdleTimeout)
+                            }}
+             )
+    end,
+    case ets:lookup(TabId, {pool, HostInfo}) of
+        [] ->
+            ets:insert(TabId, {{pool, HostInfo}, [Pid]});
+        [{_, Pids}] ->
+            ets:insert(TabId, {{pool, HostInfo}, [Pid | Pids]})
+    end,
     ok.
 
--spec conn_up(pid(), tcp|tls, state()) -> ok.
-conn_up(Pid, Protocol, #state{tabid = TabId} = State) ->
-    case ets:lookup(TabId, {await_up, Pid}) of
-        [{_, {Requester, MRef}}] ->
-            ets:delete(TabId, {await_up, Pid}),
-            demonitor(MRef),
-            Requester ! {gun_up, Pid, Protocol},
+-spec conn_up(pid(), tcp | tls, state()) -> ok.
+conn_up(Pid, Protocol, #state{tabid = TabId, idle_timeout = IdleTimeout} = State) ->
+    case ets:lookup(TabId, {pid, Pid}) of
+        [{_, Conn}] ->
+            case Conn#conn.requester of
+                undefined ->
+                    ets:insert(
+                      TabId,
+                      {{pid, Pid}, Conn#conn{
+                                     state = checked_in,
+                                     timer_ref = idle_timer(Pid, IdleTimeout)
+                                    }}
+                     );
+                Requester ->
+                    Requester ! {gun_up, Pid, Protocol},
+                    ets:insert(
+                      TabId,
+                      {{pid, Pid}, Conn#conn{
+                                     state = checked_out,
+                                     requester = undefined
+                                    }}
+                     )
+            end,
             ok;
         _ ->
             %% keep pid in the pool if no one is awaiting
-            #{origin_host := Host,
+            #{
+              origin_host := Host,
               origin_port := Port,
               transport := Transport
              } = gun:info(Pid),
@@ -200,36 +272,28 @@ conn_up(Pid, Protocol, #state{tabid = TabId} = State) ->
 
 -spec conn_down(pid(), term(), state()) -> ok.
 conn_down(Pid, Msg, #state{tabid = TabId}) ->
-    case ets:lookup(TabId, {up, Pid}) of
-        [{_, HostInfo}] ->
-            case ets:lookup(TabId, {hostinfo, HostInfo}) of
-                [{_, Conns}] ->
-                    {ToDeleteConns, NextConns}
-                    = lists:partition(
-                        fun({P, _MRef, _TRef}) -> P =:= Pid end,
-                        Conns),
-                    lists:map(
-                      fun({_Pid, MRef, TRef}) ->
-                              cancel_idle_timer(TRef),
-                              demonitor(MRef, [flush])
-                      end, ToDeleteConns),
-                    ets:insert(TabId, {{hostinfo, HostInfo}, NextConns});
+    case ets:lookup(TabId, {pid, Pid}) of
+        [{_, Conn}] ->
+            HostInfo = Conn#conn.hostinfo,
+            demonitor(Conn#conn.monitor_ref),
+            cancel_idle_timer(Conn#conn.timer_ref),
+            ets:delete(TabId, {pid, Pid}),
+            case ets:lookup(TabId, {pool, HostInfo}) of
+                [{_, Pids}] ->
+                    ets:insert(
+                      TabId,
+                      {{pool, HostInfo}, [P || P <- Pids, P =/= Pid]}
+                     );
                 _ ->
-                    ?LOG_INFO("(~p) unknown conn ~p for host ~p has gone down: ~p", [self(), Pid, HostInfo, Msg])
+                    ?LOG_INFO("(~p) unknown conn ~p for host ~p has gone down: ~p", [
+                                                                                     self(), Pid, HostInfo, Msg
+                                                                                    ])
             end,
-            ets:delete(TabId, {up, Pid}),
             ok;
         _ ->
-            case ets:lookup(TabId, {await_up, Pid}) of
-                [{_, {_, MRef}}] ->
-                    demonitor(MRef, [flush]),
-                    ets:delete(TabId, {await_up, Pid}),
-                    ok;
-                _ ->
-                    %% Some servers close connections on the fly, and gun_down is fired before the conn checks-in.
-                    %% In that case, we just forget until checkin, and the monitor will detect noproc.
-                    ok
-            end
+            %% Some servers close connections on the fly, and gun_down is fired before the conn checks-in.
+            %% In that case, we just forget until checkin, and the monitor will detect noproc.
+            ok
     end.
 
 -spec dump_state(state()) -> map().
@@ -237,22 +301,39 @@ dump_state(#state{tabid = TabId}) ->
     ets:foldl(
       fun dump_state/2,
       #{
-        up_conns => #{},
         await_up_conns => #{},
-        host_conns => #{}
+        checked_in_conns => #{},
+        checked_out_conns => #{},
+        pool_conns => #{}
        },
-      TabId).
+      TabId
+     ).
 
-dump_state({{await_up, Pid}, Awaiting}, #{await_up_conns := M} = Acc) ->
-    Acc#{await_up_conns => M#{Pid => Awaiting}};
-dump_state({{up, Pid}, HostInfo}, #{up_conns := M} = Acc) ->
-    Acc#{up_conns => M#{Pid => HostInfo}};
-dump_state({{hostinfo, HostInfo}, Conns}, #{host_conns := M} = Acc) ->
-    case Conns of
+dump_state(
+  {{pid, Pid}, #conn{hostinfo = HostInfo, state = checked_out}},
+  #{checked_out_conns := M} = Acc
+ ) ->
+    Acc#{checked_out_conns => M#{Pid => HostInfo}};
+dump_state(
+  {{pid, Pid}, #conn{hostinfo = HostInfo, state = checked_in}},
+  #{checked_in_conns := M} = Acc
+ ) ->
+    Acc#{checked_in_conns => M#{Pid => HostInfo}};
+dump_state(
+  {{pid, Pid}, #conn{hostinfo = HostInfo, state = await_up}},
+  #{await_up_conns := M} = Acc
+ ) ->
+    Acc#{await_up_conns => M#{Pid => HostInfo}};
+dump_state(
+  {{pool, HostInfo}, Pids},
+  #{pool_conns := M} = Acc
+ ) ->
+    case Pids of
         [] ->
             Acc;
         _ ->
-            Acc#{host_conns => M#{HostInfo => Conns}}
+            Acc#{pool_conns => M#{HostInfo => Pids}}
     end;
 dump_state(_, Acc) ->
     Acc.
+
