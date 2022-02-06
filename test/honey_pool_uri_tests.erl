@@ -8,44 +8,45 @@ parse_uri_test_() ->
              {
               "http://foobar.com",
               fun(Actual) ->
-                      Expected = {ok,
-                                  #uri{
-                                     host = "foobar.com",
-                                     path = "/",
-                                     query = "",
-                                     pathquery = "/",
-                                     port = 80,
-                                     transport = tcp
-                                    }},
+                      Expected =
+                      {ok, #uri{
+                              host = "foobar.com",
+                              path = "/",
+                              query = "",
+                              pathquery = "/",
+                              port = 80,
+                              transport = tcp
+                             }},
                       ?_assertEqual(Expected, Actual)
               end
              },
              {
               "https://foobar.com/",
               fun(Actual) ->
-                      Expected = {ok,
-                                  #uri{
-                                     host = "foobar.com",
-                                     path = "/",
-                                     query = "",
-                                     pathquery = "/",
-                                     port = 443,
-                                     transport = tls
-                                    }},
+                      Expected =
+                      {ok, #uri{
+                              host = "foobar.com",
+                              path = "/",
+                              query = "",
+                              pathquery = "/",
+                              port = 443,
+                              transport = tls
+                             }},
                       ?_assertEqual(Expected, Actual)
               end
              },
              {
               "https://foobar.com:8443/hoge/fuga?foo=bar&bar=foo",
               fun({ok, Actual}) ->
-                      Expected = {ok, #uri{
-                                         host = "foobar.com",
-                                         path = "/hoge/fuga",
-                                         query = "foo=bar&bar=foo",
-                                         pathquery = "/hoge/fuga?foo=bar&bar=foo",
-                                         port = 8443,
-                                         transport = tls
-                                        }},
+                      Expected =
+                      {ok, #uri{
+                              host = "foobar.com",
+                              path = "/hoge/fuga",
+                              query = "foo=bar&bar=foo",
+                              pathquery = "/hoge/fuga?foo=bar&bar=foo",
+                              port = 8443,
+                              transport = tls
+                             }},
                       Actual1 = Actual#uri{
                                   pathquery = lists:flatten(Actual#uri.pathquery)
                                  },
@@ -55,33 +56,41 @@ parse_uri_test_() ->
              {
               <<"https://foobar.com:8443/hoge/fuga?foo=bar&bar=foo">>,
               fun({ok, Actual}) ->
-                      Expected = {ok, #uri{
-                                         host = "foobar.com",
-                                         path = "/hoge/fuga",
-                                         query = "foo=bar&bar=foo",
-                                         pathquery = "/hoge/fuga?foo=bar&bar=foo",
-                                         port = 8443,
-                                         transport = tls
-                                        }},
-                      ?_assertEqual(Expected, {ok, Actual#uri{
-                                                     pathquery = lists:flatten(Actual#uri.pathquery)
-                                                    }})
+                      Expected =
+                      {ok, #uri{
+                              host = "foobar.com",
+                              path = "/hoge/fuga",
+                              query = "foo=bar&bar=foo",
+                              pathquery = "/hoge/fuga?foo=bar&bar=foo",
+                              port = 8443,
+                              transport = tls
+                             }},
+                      ?_assertEqual(
+                         Expected,
+                         {ok, Actual#uri{
+                                pathquery = lists:flatten(Actual#uri.pathquery)
+                               }}
+                        )
               end
              },
              {
               <<"http://hogehoge/?hoge=${HOGE}&fuga=..&foo=]|">>,
               fun({ok, Actual}) ->
-                      Expected = {ok, #uri{
-                                         host = "hogehoge",
-                                         path = "/",
-                                         query = "hoge=${HOGE}&fuga=..&foo=]|",
-                                         pathquery = "/?hoge=${HOGE}&fuga=..&foo=]|",
-                                         port = 80,
-                                         transport = tcp
-                                        }},
-                      ?_assertEqual(Expected, {ok, Actual#uri{
-                                                     pathquery = lists:flatten(Actual#uri.pathquery)
-                                                    }})
+                      Expected =
+                      {ok, #uri{
+                              host = "hogehoge",
+                              path = "/",
+                              query = "hoge=${HOGE}&fuga=..&foo=]|",
+                              pathquery = "/?hoge=${HOGE}&fuga=..&foo=]|",
+                              port = 80,
+                              transport = tcp
+                             }},
+                      ?_assertEqual(
+                         Expected,
+                         {ok, Actual#uri{
+                                pathquery = lists:flatten(Actual#uri.pathquery)
+                               }}
+                        )
               end
              }
             ],
@@ -90,3 +99,4 @@ parse_uri_test_() ->
                 [{Input, Test(Actual)}]
         end,
     lists:map(F, Cases).
+

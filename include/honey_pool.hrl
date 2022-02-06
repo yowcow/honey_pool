@@ -17,9 +17,7 @@
 -type gun_req_opts() :: gun:req_opts().
 
 -type conn() :: {pid(), monitor_ref()}.
--type pool_conn() :: {pid(), monitor_ref(), timer_ref()}.
 -type monitor_ref() :: reference().
--type timer_ref() :: reference()|no_ref.
 
 -type transport() :: tcp | tls.
 -type hostinfo() :: {Host::string(), Port::integer(), Transport::transport()}.
