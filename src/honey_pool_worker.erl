@@ -70,44 +70,44 @@ terminate(Reason, State) ->
      ),
     ok.
 
-handle_call({checkout, HostInfo}, {Requester, _}, State) ->
-    Ret = conn_checkout(HostInfo, Requester, State),
-    ?LOG_DEBUG("(~p) checkout a conn: ~p -> ~p", [self(), HostInfo, Ret]),
-    {reply, Ret, State};
+handle_call({checkout, HostInfo} = Req, {Requester, _}, State) ->
+    Result = conn_checkout(HostInfo, Requester, State),
+    ?LOG_DEBUG("(~p) handle_call (~p) -> ~p", [self(), Req, Result]),
+    {reply, Result, State};
 handle_call(dump_state, _From, State) ->
     {reply, dump_state(State), State};
 handle_call(Req, From, State) ->
     ?LOG_WARNING("(~p) unhandled call (~p, ~p, ~p)", [self(), Req, From, State]),
     {reply, {error, no_handler}, State}.
 
-handle_cast({checkin, HostInfo, Pid}, State) ->
-    ?LOG_DEBUG("(~p) checkin a conn: ~p -> ~p", [self(), HostInfo, Pid]),
-    ok = conn_checkin(HostInfo, Pid, State),
+handle_cast({checkin, HostInfo, Pid} = Req, State) ->
+    Result = conn_checkin(HostInfo, Pid, State),
+    ?LOG_DEBUG("(~p) handle_cast (~p) -> ~p", [self(), Req, Result]),
     {noreply, State};
 handle_cast({cancel_await_up, Pid} = Req, State) ->
-    ?LOG_DEBUG("(~p) cancel await_up: ~p", [self(), Req]),
-    ok = conn_cancel_await_up(Pid, State),
+    Result = conn_cancel_await_up(Pid, State),
+    ?LOG_DEBUG("(~p) handle_cast (~p) -> ~p", [self(), Req, Result]),
     {noreply, State};
 handle_cast(Req, State) ->
     ?LOG_WARNING("(~p) unhandled cast (~p, ~p)", [self(), Req, State]),
     {noreply, State}.
 
 handle_info({idle_timeout, Pid} = Req, State) ->
-    ?LOG_DEBUG("(~p) idle_timeout: ~p", [self(), Req]),
-    ok = gun:close(Pid),
+    Result = gun:close(Pid),
+    ?LOG_DEBUG("(~p) handle_info (~p)", [self(), Req, Result]),
     {noreply, State};
 handle_info({gun_up, Pid, Protocol} = Req, State) ->
-    ?LOG_DEBUG("(~p) gun_up on a conn: ~p", [self(), Req]),
-    ok = conn_up(Pid, Protocol, State),
+    Result = conn_up(Pid, Protocol, State),
+    ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
     {noreply, State};
-handle_info({gun_down, Pid, _Protocol, Reason, _} = Req, State) ->
-    ?LOG_DEBUG("(~p) gun_down on a conn: ~p", [self(), Req]),
-    ok = conn_down(Pid, Reason, State),
+handle_info({gun_down, Pid, _Protocol, _Reason, _} = Req, State) ->
+    Result = conn_down(Pid, State),
+    ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
     {noreply, State};
-handle_info({'DOWN', MRef, _, Pid, Reason} = Req, State) ->
-    ?LOG_DEBUG("(~p) conn has gone away: ~p", [self(), Req]),
+handle_info({'DOWN', MRef, _, Pid, _Reason} = Req, State) ->
     demonitor(MRef, [flush]),
-    ok = conn_down(Pid, {error, Reason}, State),
+    Result = conn_down(Pid, State),
+    ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
     {noreply, State};
 handle_info(Req, State) ->
     ?LOG_WARNING("(~p) unhandled info (~p, ~p)", [self(), Req, State]),
@@ -205,7 +205,7 @@ conn_cancel_await_up(Pid, #state{tabid = TabId}) ->
             ok
     end.
 
--spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) -> ok.
+-spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) -> {ok, term()}.
 conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [] ->
@@ -233,9 +233,9 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) -
         [{_, Pids}] ->
             ets:insert(TabId, {{pool, HostInfo}, [Pid | Pids]})
     end,
-    ok.
+    {ok, {HostInfo, Pid}}.
 
--spec conn_up(pid(), tcp | tls, state()) -> ok.
+-spec conn_up(pid(), tcp | tls, state()) -> {ok, term()}.
 conn_up(Pid, Protocol, #state{tabid = TabId, idle_timeout = IdleTimeout} = State) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [{_, Conn}] ->
@@ -258,7 +258,7 @@ conn_up(Pid, Protocol, #state{tabid = TabId, idle_timeout = IdleTimeout} = State
                                     }}
                      )
             end,
-            ok;
+            {ok, {Conn#conn.hostinfo, Pid}};
         _ ->
             %% keep pid in the pool if no one is awaiting
             #{
@@ -270,8 +270,8 @@ conn_up(Pid, Protocol, #state{tabid = TabId, idle_timeout = IdleTimeout} = State
             conn_checkin(HostInfo, Pid, State)
     end.
 
--spec conn_down(pid(), term(), state()) -> ok.
-conn_down(Pid, Msg, #state{tabid = TabId}) ->
+-spec conn_down(pid(), state()) -> {ok, term()}.
+conn_down(Pid, #state{tabid = TabId}) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [{_, Conn}] ->
             HostInfo = Conn#conn.hostinfo,
@@ -285,15 +285,13 @@ conn_down(Pid, Msg, #state{tabid = TabId}) ->
                       {{pool, HostInfo}, [P || P <- Pids, P =/= Pid]}
                      );
                 _ ->
-                    ?LOG_INFO("(~p) unknown conn ~p for host ~p has gone down: ~p", [
-                                                                                     self(), Pid, HostInfo, Msg
-                                                                                    ])
+                    ok
             end,
-            ok;
+            {ok, {HostInfo, Pid}};
         _ ->
             %% Some servers close connections on the fly, and gun_down is fired before the conn checks-in.
             %% In that case, we just forget until checkin, and the monitor will detect noproc.
-            ok
+            {ok, nonexisting}
     end.
 
 -spec dump_state(state()) -> map().
