@@ -275,7 +275,7 @@ conn_down(Pid, #state{tabid = TabId}) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [{_, Conn}] ->
             HostInfo = Conn#conn.hostinfo,
-            demonitor(Conn#conn.monitor_ref),
+            demonitor(Conn#conn.monitor_ref, [flush]),
             cancel_idle_timer(Conn#conn.timer_ref),
             ets:delete(TabId, {pid, Pid}),
             case ets:lookup(TabId, {pool, HostInfo}) of
