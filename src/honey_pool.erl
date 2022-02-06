@@ -271,26 +271,28 @@ summarize_state() ->
 
 summarize_state(
   #{
-    up_conns := UC,
     await_up_conns := AC,
-    host_conns := HC
+    checked_in_conns := IC,
+    checked_out_conns := OC,
+    pool_conns := PC
    }
  ) ->
-    HostConns = lists:foldl(
-                  fun({Host, Conns}, Acc) ->
-                          [{Host, length(Conns)} | Acc]
+    PoolConns = lists:foldl(
+                  fun({Host, Pids}, Acc) ->
+                          [{Host, length(Pids)} | Acc]
                   end,
                   [],
-                  maps:to_list(HC)
+                  maps:to_list(PC)
                  ),
     #{
       total_conns => #{
-                       up => maps:size(UC),
-                       await_up => maps:size(AC)
+                       await_up => maps:size(AC),
+                       checked_in => maps:size(IC),
+                       checked_out => maps:size(OC)
                       },
-      host_conns => lists:sort(
+      pool_conns => lists:sort(
                       fun({_, A}, {_, B}) -> A > B end,
-                      HostConns
+                      PoolConns
                      )
      }.
 
