@@ -213,13 +213,11 @@ checkout(HostInfo, Timeout0) ->
 -spec cancel_await_up(ReturnTo::pid(), Conn::conn()) -> ok.
 cancel_await_up(ReturnTo, {Pid, MRef}) ->
     demonitor(MRef),
-    gun:flush(Pid),
     return_to(ReturnTo, Pid, {cancel_await_up, Pid}).
 
 -spec checkin(ReturnTo::pid(), HostInfo::hostinfo(), Conn::conn()) -> ok.
 checkin(ReturnTo, HostInfo, {Pid, MRef}) ->
     demonitor(MRef, [flush]),
-    gun:flush(Pid),
     return_to(ReturnTo, Pid, {checkin, HostInfo, Pid}).
 
 -spec cleanup(Conn::conn()) -> ok.
@@ -231,6 +229,7 @@ cleanup({Pid, MRef}) ->
 -spec return_to(ReturnTo::pid(), Pid::pid(), Msg::term()) -> ok.
 return_to(ReturnTo, Pid, Msg) ->
     gun:set_owner(Pid, ReturnTo),
+    gun:flush(Pid),
     gen_server:cast(ReturnTo, Msg).
 
 -spec dump_state() -> [map()].
