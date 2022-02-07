@@ -237,19 +237,15 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) -
     {ok, {HostInfo, Pid}}.
 
 -spec conn_up(pid(), tcp | tls, state()) -> {ok, term()}.
-conn_up(Pid, Protocol, #state{tabid = TabId, idle_timeout = IdleTimeout} = State) ->
+conn_up(Pid, Protocol, #state{tabid = TabId} = State) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [{_, Conn}] ->
             case Conn#conn.requester of
                 undefined ->
-                    ets:insert(
-                      TabId,
-                      {{pid, Pid}, Conn#conn{
-                                     state = checked_in,
-                                     timer_ref = idle_timer(Pid, IdleTimeout)
-                                    }}
-                     );
+                    %% requester has canceled -> just keep pid in the pool
+                    conn_checkin(Conn#conn.hostinfo, Pid, State);
                 Requester ->
+                    %% notify requester and tag that conn is checked out
                     Requester ! {gun_up, Pid, Protocol},
                     ets:insert(
                       TabId,
@@ -257,11 +253,11 @@ conn_up(Pid, Protocol, #state{tabid = TabId, idle_timeout = IdleTimeout} = State
                                      state = checked_out,
                                      requester = undefined
                                     }}
-                     )
-            end,
-            {ok, {Conn#conn.hostinfo, Pid}};
+                     ),
+                    {ok, {Conn#conn.hostinfo, Pid}}
+            end;
         _ ->
-            %% keep pid in the pool if no one is awaiting
+            %% arrived out of the blue -> just keep pid in the pool
             #{
               origin_host := Host,
               origin_port := Port,
