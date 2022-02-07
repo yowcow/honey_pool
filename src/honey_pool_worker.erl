@@ -94,7 +94,7 @@ handle_cast(Req, State) ->
 
 handle_info({idle_timeout, Pid} = Req, State) ->
     Result = gun:close(Pid),
-    ?LOG_DEBUG("(~p) handle_info (~p)", [self(), Req, Result]),
+    ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
     {noreply, State};
 handle_info({gun_up, Pid, Protocol} = Req, State) ->
     Result = conn_up(Pid, Protocol, State),
