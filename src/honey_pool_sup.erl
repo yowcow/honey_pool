@@ -31,30 +31,19 @@ init([]) ->
                  intensity => 0,
                  period => 1
                 },
-    GunOpts = application:get_env(honey_pool, gun_opts, #{}),
-    IdleTimeout = application:get_env(honey_pool, idle_timeout, infinity),
-    WpoolConfig = maps:to_list(
-                    lists:foldr(
-                      fun({K, V}, Acc) -> Acc#{K => V} end,
-                      #{},
-                      lists:flatten(
-                        application:get_env(honey_pool, wpool, []),
-                        [
-                         {workers, 2},
-                         {overrun_warning, 300},
-                         {worker,
-                          {honey_pool_worker, [
-                                               {gun_opts, GunOpts},
-                                               {idle_timeout, IdleTimeout}
-                                              ]}}
-                        ]
-                       )
-                     )
-                   ),
     ChildSpecs = [
+                  %%
+                  %% @todo enable arbitrary number of pools
+                  %%
                   #{
                     id => honey_pool_workers,
-                    start => {wpool, start_pool, [honey_pool_worker, WpoolConfig]},
+                    start => {wpool, start_pool, [
+                                                  honey_pool_worker,
+                                                  [
+                                                   {workers, 2},
+                                                   {worker, {honey_pool_worker, []}}
+                                                  ]
+                                                 ]},
                     restart => permanent,
                     type => worker
                    }

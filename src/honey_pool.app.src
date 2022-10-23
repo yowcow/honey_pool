@@ -6,7 +6,6 @@
   {applications,
    [kernel,
     stdlib,
-    gun,
     worker_pool
    ]},
   {env,[]},
