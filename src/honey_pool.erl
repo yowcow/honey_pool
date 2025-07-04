@@ -22,8 +22,7 @@
 -type req_headers() :: gun:req_headers().
 -type resp() ::
 {ok, {status(), resp_headers(), binary() | no_data}}
-| {timeout, term()}
-| {error, Reason :: any()}.
+| {error, honey_pool_error()}.
 -type resp_headers() :: gun:resp_headers().
 -type status() :: integer().
 -type url() :: string().
@@ -88,18 +87,18 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
         {ok, HostInfo, PathQuery} ->
             execute_request(Method, Url, HostInfo, PathQuery, Headers, Body, Opts, Timeout0);
         {error, Reason} ->
-            {error, {uri, Reason}}
+            {error, {uri_error, Reason}}
     end.
 
 %% Parse URL and extract host info and path query
--spec parse_url(url()) -> {ok, hostinfo(), string()} | {error, term()}.
+-spec parse_url(url()) -> {ok, hostinfo(), string()} | {error, honey_pool_error()}.
 parse_url(Url) ->
     case honey_pool_uri:parse(Url) of
         {ok, U} ->
             HostInfo = {U#uri.host, U#uri.port, U#uri.transport},
             {ok, HostInfo, U#uri.pathquery};
         {error, Reason} ->
-            {error, Reason}
+            {error, {uri_error, Reason}}
     end.
 
 %% Execute HTTP request with connection management
@@ -114,12 +113,12 @@ execute_request(Method, Url, HostInfo, PathQuery, Headers, Body, Opts, Timeout0)
             handle_request_result(Result, ReturnTo, HostInfo, Conn, Method, Url),
             Result;
         {error, Reason} ->
-            {error, {checkout, Reason}}
+            {error, {checkout_error, Reason}}
     end.
 
 %% Checkout connection with timing
 -spec checkout_connection(hostinfo(), timeout()) -> 
-    {ok, {pid(), conn(), timeout()}} | {error, term()}.
+    {ok, {pid(), conn(), timeout()}} | {error, honey_pool_error()}.
 checkout_connection(HostInfo, Timeout0) ->
     {Elapsed, Checkout} = timer:tc(fun checkout/2, [HostInfo, Timeout0]),
     case Checkout of
@@ -127,7 +126,7 @@ checkout_connection(HostInfo, Timeout0) ->
             RemainingTimeout = next_timeout(Timeout0, Elapsed),
             {ok, {ReturnTo, Conn, RemainingTimeout}};
         {error, Reason} ->
-            {error, Reason}
+            {error, {checkout_error, Reason}}
     end.
 
 %% Handle request result and connection cleanup
@@ -184,11 +183,11 @@ handle_await_result(AwaitResult, {Pid, MRef}, StreamRef, RemainingTimeout) ->
             %% there exist servers that return content-length header and handle such responses as ordinary 204 response
             {ok, {?HTTP_STATUS_NO_CONTENT, [], no_data}};
         {error, {stream_error, _} = Reason} ->
-            {error, {await, Reason}};
+            {error, {request_error, Reason}};
         {error, timeout} ->
-            {error, {timeout, await}};
+            {error, {timeout_error, await}};
         {error, Reason} ->
-            {error, {await, Reason}}
+            {error, {request_error, Reason}}
     end.
 
 %% Handle reading response body for 200 OK responses
@@ -199,9 +198,9 @@ handle_ok_response_body(Pid, StreamRef, MRef, RespHeaders, Timeout) ->
         {ok, RespBody} ->
             {ok, {?HTTP_STATUS_OK, RespHeaders, RespBody}};
         {error, timeout} ->
-            {error, {timeout, await_body}};
+            {error, {timeout_error, await_body}};
         {error, Reason} ->
-            {error, {await_body, Reason}}
+            {error, {request_error, Reason}}
     end.
 
 -spec headers(req_headers()) -> req_headers().
