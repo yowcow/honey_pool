@@ -158,9 +158,9 @@ conn_checkout(HostInfo, Requester, #state{tabid = TabId} = State) ->
             end
     end,
     case Result of
-        {ok, {Status, Pid1}} ->
-            %%gun:set_owner(Pid, Requester),
-            {ok, {Status, {self(), Pid1}}};
+        {ok, {Status, ConnPid}} ->
+            %%gun:set_owner(ConnPid, Requester),
+            {ok, {Status, {self(), ConnPid}}};
         _ ->
             Result
     end.
@@ -171,11 +171,11 @@ conn_checkout(HostInfo, Requester, #state{tabid = TabId} = State) ->
 conn_open(
   {Host, Port, Transport},
   Requester,
-  #state{gun_opts = GunOpts0, tabid = TabId}
+  #state{gun_opts = GunOpts, tabid = TabId}
  ) ->
-    GunOpts = GunOpts0#{transport => Transport},
+    GunOptsWithTransport = GunOpts#{transport => Transport},
     HostInfo = {Host, Port, Transport},
-    case gun:open(Host, Port, GunOpts) of
+    case gun:open(Host, Port, GunOptsWithTransport) of
         {ok, Pid} ->
             ets:insert(
               TabId,

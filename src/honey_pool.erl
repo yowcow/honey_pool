@@ -24,7 +24,7 @@
 {ok, {status(), resp_headers(), binary() | no_data}}
 | {timeout, term()}
 | {error, Reason :: any()}.
--type resp_headers() :: gun:resp_headers().
+-type resp_headers() :: [{binary(), binary()}].
 -type status() :: integer().
 -type url() :: string().
 
@@ -72,8 +72,8 @@ post(Url, Headers, Body, Timeout) ->
         Opts :: gun_req_opts(),
         Timeout :: timeout()
        ) -> resp().
-post(Url, Headers, Body, Opt, Timeout) ->
-    request(?METHOD_POST, Url, Headers, Body, Opt, Timeout).
+post(Url, Headers, Body, Opts, Timeout) ->
+    request(?METHOD_POST, Url, Headers, Body, Opts, Timeout).
 
 -spec request(
         Method :: method(),
@@ -81,9 +81,9 @@ post(Url, Headers, Body, Opt, Timeout) ->
         Headers :: req_headers(),
         Body :: binary() | no_data,
         Opts :: gun_req_opts(),
-        Timeout0 :: timeout()
+        Timeout :: timeout()
        ) -> resp().
-request(Method, Url, Headers, Body, Opts, Timeout0) ->
+request(Method, Url, Headers, Body, Opts, Timeout) ->
     case honey_pool_uri:parse(Url) of
         {ok, U} ->
             HostInfo = {U#uri.host, U#uri.port, U#uri.transport},
@@ -91,7 +91,7 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
                                     fun checkout/2,
                                     [
                                      HostInfo,
-                                     Timeout0
+                                     Timeout
                                     ]
                                    ),
             case Checkout of
@@ -103,7 +103,7 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
                                Headers,
                                Body,
                                Opts,
-                               next_timeout(Timeout0, Elapsed)
+                               next_timeout(Timeout, Elapsed)
                               ),
                     case Result of
                         {ok, {Status, _, _}} ->
@@ -137,15 +137,15 @@ request(Method, Url, Headers, Body, Opts, Timeout0) ->
         Headers :: req_headers(),
         Body :: iodata(),
         Opts :: gun_req_opts(),
-        Timeout0 :: timeout()
+        Timeout :: timeout()
        ) -> resp().
-do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout0) ->
+do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout) ->
     ReqHeaders = headers(Headers),
     StreamRef = gun:request(Pid, Method, Path, ReqHeaders, Body, Opts),
     {Elapsed, Result} =
     timer:tc(
       fun gun:await/4,
-      [Pid, StreamRef, Timeout0, MRef]
+      [Pid, StreamRef, Timeout, MRef]
      ),
     Resp =
     case Result of
@@ -153,8 +153,8 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout0) ->
             {ok, {Status, RespHeaders, no_data}};
         {response, nofin, 200, RespHeaders} ->
             %% read body only when status code is 200
-            Timeout1 = next_timeout(Timeout0, Elapsed),
-            case gun:await_body(Pid, StreamRef, Timeout1, MRef) of
+            TimeoutRemaining = next_timeout(Timeout, Elapsed),
+            case gun:await_body(Pid, StreamRef, TimeoutRemaining, MRef) of
                 {ok, RespBody} ->
                     {ok, {200, RespHeaders, RespBody}};
                 {error, timeout} ->
@@ -192,31 +192,31 @@ headers(Headers) ->
      | Headers
     ].
 
--spec next_timeout(Timeout0 :: timeout(), MicroSec :: integer()) -> timeout().
+-spec next_timeout(Timeout :: timeout(), MicroSec :: integer()) -> timeout().
 next_timeout(infinity, _) ->
     infinity;
-next_timeout(Timeout0, MicroSec) ->
+next_timeout(Timeout, MicroSec) ->
     Interval = trunc(MicroSec / 1000),
-    case Timeout0 > Interval of
+    case Timeout > Interval of
         true ->
-            Timeout0 - Interval;
+            Timeout - Interval;
         _ ->
             0
     end.
 
--spec checkout(HostInfo :: hostinfo(), Timeout0 :: timeout()) ->
+-spec checkout(HostInfo :: hostinfo(), Timeout :: timeout()) ->
     {ok, {ReturnTo :: pid(), Conn :: conn()}} | {error, Reason :: term()}.
-checkout(HostInfo, Timeout0) ->
+checkout(HostInfo, Timeout) ->
     {Elapsed, Result} =
     timer:tc(
       fun wpool:call/4,
-      [?WORKER, {checkout, HostInfo}, best_worker, Timeout0]
+      [?WORKER, {checkout, HostInfo}, best_worker, Timeout]
      ),
     try Result of
         {ok, {await_up, {ReturnTo, Pid}}} ->
             MRef = monitor(process, Pid),
-            Timeout1 = next_timeout(Timeout0, Elapsed),
-            case gun:await_up(Pid, Timeout1, MRef) of
+            TimeoutRemaining = next_timeout(Timeout, Elapsed),
+            case gun:await_up(Pid, TimeoutRemaining, MRef) of
                 {ok, _} ->
                     {ok, {ReturnTo, {Pid, MRef}}};
                 {error, timeout} ->
