@@ -303,20 +303,10 @@ dump_state(#state{tabid = TabId}) ->
      ).
 
 dump_state(
-  {{pid, Pid}, #conn{hostinfo = HostInfo, state = checked_out}},
-  #{checked_out_conns := M} = Acc
+  {{pid, Pid}, #conn{hostinfo = HostInfo, state = State}},
+  Acc
  ) ->
-    Acc#{checked_out_conns => M#{Pid => HostInfo}};
-dump_state(
-  {{pid, Pid}, #conn{hostinfo = HostInfo, state = checked_in}},
-  #{checked_in_conns := M} = Acc
- ) ->
-    Acc#{checked_in_conns => M#{Pid => HostInfo}};
-dump_state(
-  {{pid, Pid}, #conn{hostinfo = HostInfo, state = await_up}},
-  #{await_up_conns := M} = Acc
- ) ->
-    Acc#{await_up_conns => M#{Pid => HostInfo}};
+    update_dump_state(State, Pid, HostInfo, Acc);
 dump_state(
   {{pool, HostInfo}, Pids},
   #{pool_conns := M} = Acc
@@ -329,4 +319,12 @@ dump_state(
     end;
 dump_state(_, Acc) ->
     Acc.
+
+%% Helper function to update dump state accumulator
+update_dump_state(checked_out, Pid, HostInfo, #{checked_out_conns := M} = Acc) ->
+    Acc#{checked_out_conns => M#{Pid => HostInfo}};
+update_dump_state(checked_in, Pid, HostInfo, #{checked_in_conns := M} = Acc) ->
+    Acc#{checked_in_conns => M#{Pid => HostInfo}};
+update_dump_state(await_up, Pid, HostInfo, #{await_up_conns := M} = Acc) ->
+    Acc#{await_up_conns => M#{Pid => HostInfo}}.
 
