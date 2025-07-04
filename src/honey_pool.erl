@@ -151,12 +151,12 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout0) ->
     case Result of
         {response, fin, Status, RespHeaders} ->
             {ok, {Status, RespHeaders, no_data}};
-        {response, nofin, 200, RespHeaders} ->
+        {response, nofin, ?HTTP_STATUS_OK, RespHeaders} ->
             %% read body only when status code is 200
             Timeout1 = next_timeout(Timeout0, Elapsed),
             case gun:await_body(Pid, StreamRef, Timeout1, MRef) of
                 {ok, RespBody} ->
-                    {ok, {200, RespHeaders, RespBody}};
+                    {ok, {?HTTP_STATUS_OK, RespHeaders, RespBody}};
                 {error, timeout} ->
                     {error, {timeout, await_body}};
                 {error, Reason} ->
@@ -171,7 +171,7 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout0) ->
           {stream_error, protocol_error,
            'Content-length header received in a 204 response. (RFC7230 3.3.2)'}}} ->
             %% there exist servers that return content-length header and handle such responses as ordinary 204 response
-            {ok, {204, [], no_data}};
+            {ok, {?HTTP_STATUS_NO_CONTENT, [], no_data}};
         {error, {stream_error, _} = Reason} ->
             {error, {await, Reason}};
         {error, timeout} ->

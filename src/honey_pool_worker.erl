@@ -16,12 +16,10 @@
                         retry => 0,
                         connect_timeout => 1000,
                         http_opts => #{
-                                       %% 30 sec
-                                       keepalive => 30 * 1000
+                                       keepalive => ?DEFAULT_KEEPALIVE_TIMEOUT
                                       },
                         http2_opts => #{
-                                        %% 30 sec
-                                        keepalive => 30 * 1000
+                                        keepalive => ?DEFAULT_KEEPALIVE_TIMEOUT
                                        }
                        }).
 -define(ETS_TABLE, honey_pool).
