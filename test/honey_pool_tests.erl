@@ -110,7 +110,7 @@ request_test_() ->
                                                                   5
                                                                  ),
                                                        ?assertMatch(
-                                                          {error, {timeout, await}},
+                                                          {error, {timeout_error, await}},
                                                           Actual
                                                          )
                                                end},
