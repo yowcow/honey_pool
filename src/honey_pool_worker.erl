@@ -26,7 +26,7 @@
 
 -record(conn, {
           hostinfo :: hostinfo(),
-          state :: await_up | checked_out | checked_in,
+          state :: conn_state(),
           requester :: requester(),
           monitor_ref :: monitor_ref(),
           timer_ref :: timer_ref()
@@ -133,24 +133,25 @@ cancel_idle_timer(TRef) ->
     | {error, Reason :: term()}.
 conn_checkout(HostInfo, Requester, #state{tabid = TabId} = State) ->
     Result =
-    case ets:lookup(TabId, {pool, HostInfo}) of
+    case ets_lookup_pool(TabId, HostInfo) of
         [] ->
             conn_open(HostInfo, Requester, State);
         [{_, []}] ->
             conn_open(HostInfo, Requester, State);
         [{_, [Pid | Pids]}] ->
-            ets:insert(TabId, {{pool, HostInfo}, Pids}),
-            case ets:lookup(TabId, {pid, Pid}) of
+            ets_insert_pool(TabId, HostInfo, Pids),
+            case ets_lookup_pid(TabId, Pid) of
                 [] ->
                     {error, pid_not_found};
                 [{_, Conn}] ->
                     cancel_idle_timer(Conn#conn.timer_ref),
-                    ets:insert(
+                    ets_insert_pid(
                       TabId,
-                      {{pid, Pid}, Conn#conn{
-                                     state = checked_out,
-                                     timer_ref = undefined
-                                    }}
+                      Pid,
+                      Conn#conn{
+                        state = checked_out,
+                        timer_ref = undefined
+                       }
                      ),
                     {ok, {up, Pid}}
             end
@@ -327,4 +328,21 @@ update_dump_state(checked_in, Pid, HostInfo, #{checked_in_conns := M} = Acc) ->
     Acc#{checked_in_conns => M#{Pid => HostInfo}};
 update_dump_state(await_up, Pid, HostInfo, #{await_up_conns := M} = Acc) ->
     Acc#{await_up_conns => M#{Pid => HostInfo}}.
+
+%% ETS table helper functions for type safety
+-spec ets_lookup_pid(ets:tid(), pid()) -> [{ets_key(), #conn{}}].
+ets_lookup_pid(TabId, Pid) ->
+    ets:lookup(TabId, {pid, Pid}).
+
+-spec ets_lookup_pool(ets:tid(), hostinfo()) -> [{ets_key(), [pid()]}].
+ets_lookup_pool(TabId, HostInfo) ->
+    ets:lookup(TabId, {pool, HostInfo}).
+
+-spec ets_insert_pid(ets:tid(), pid(), #conn{}) -> true.
+ets_insert_pid(TabId, Pid, Conn) ->
+    ets:insert(TabId, {{pid, Pid}, Conn}).
+
+-spec ets_insert_pool(ets:tid(), hostinfo(), [pid()]) -> true.
+ets_insert_pool(TabId, HostInfo, Pids) ->
+    ets:insert(TabId, {{pool, HostInfo}, Pids}).
 
