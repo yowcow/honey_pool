@@ -140,21 +140,12 @@ conn_checkout(HostInfo, Requester, #state{tabid = TabId} = State) ->
             conn_open(HostInfo, Requester, State);
         [{_, []}] ->
             conn_open(HostInfo, Requester, State);
-        [{_, [Pid | Pids]}] ->
-            ets:insert(TabId, {{pool, HostInfo}, Pids}),
-            case ets:lookup(TabId, {pid, Pid}) of
-                [] ->
-                    {error, pid_not_found};
-                [{_, Conn}] ->
-                    cancel_idle_timer(Conn#conn.timer_ref),
-                    ets:insert(
-                      TabId,
-                      {{pid, Pid}, Conn#conn{
-                                     state = checked_out,
-                                     timer_ref = undefined
-                                    }}
-                     ),
-                    {ok, {up, Pid}}
+        [{_, Pids}] ->
+            case checkout_from_pool(HostInfo, Requester, Pids, State) of
+                no_available_worker ->
+                    conn_open(HostInfo, Requester, State);
+                Other ->
+                    Other
             end
     end,
     case Result of
@@ -163,6 +154,28 @@ conn_checkout(HostInfo, Requester, #state{tabid = TabId} = State) ->
             {ok, {Status, {self(), ConnPid}}};
         _ ->
             Result
+    end.
+
+-spec checkout_from_pool(hostinfo(), pid(), [pid()], state()) ->
+    {ok, {up, pid()}} | no_available_worker.
+checkout_from_pool(_HostInfo, _Requester, [], _State) ->
+    no_available_worker;
+checkout_from_pool(HostInfo, Requester, [Pid | Pids], #state{tabid = TabId} = State) ->
+    case ets:lookup(TabId, {pid, Pid}) of
+        [] ->
+            %% Pid not in the table, try next one
+            checkout_from_pool(HostInfo, Requester, Pids, State);
+        [{_, Conn}] ->
+            ets:insert(TabId, {{pool, HostInfo}, Pids}),
+            cancel_idle_timer(Conn#conn.timer_ref),
+            ets:insert(
+              TabId,
+              {{pid, Pid}, Conn#conn{
+                             state = checked_out,
+                             timer_ref = undefined
+                            }}
+             ),
+            {ok, {up, Pid}}
     end.
 
 -spec conn_open(HostInfo :: hostinfo(), Requester :: pid(), State :: state()) ->
