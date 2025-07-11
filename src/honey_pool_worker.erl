@@ -219,19 +219,11 @@ conn_cancel_await_up(Pid, #state{tabid = TabId}) ->
             ok
     end.
 
--spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) -> {ok, term()}.
+-spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) -> {ok, term()} | {error, term()}.
 conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [] ->
-            ets:insert(
-              TabId,
-              {{pid, Pid}, #conn{
-                              hostinfo = HostInfo,
-                              state = checked_in,
-                              monitor_ref = monitor(process, Pid),
-                              timer_ref = idle_timer(Pid, IdleTimeout)
-                             }}
-             );
+            {error, {non_existing_pid, Pid}};
         [{_, Conn}] ->
             ets:insert(
               TabId,
@@ -239,15 +231,15 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) -
                              state = checked_in,
                              timer_ref = idle_timer(Pid, IdleTimeout)
                             }}
-             )
-    end,
-    case ets:lookup(TabId, {pool, HostInfo}) of
-        [] ->
-            ets:insert(TabId, {{pool, HostInfo}, [Pid]});
-        [{_, Pids}] ->
-            ets:insert(TabId, {{pool, HostInfo}, [Pid | Pids]})
-    end,
-    {ok, {HostInfo, Pid}}.
+             ),
+            case ets:lookup(TabId, {pool, HostInfo}) of
+                [] ->
+                    ets:insert(TabId, {{pool, HostInfo}, [Pid]});
+                [{_, Pids}] ->
+                    ets:insert(TabId, {{pool, HostInfo}, [Pid | Pids]})
+            end,
+            {ok, {HostInfo, Pid}}
+    end.
 
 -spec conn_up(pid(), tcp | tls, state()) -> {ok, term()}.
 conn_up(Pid, Protocol, #state{tabid = TabId} = State) ->
