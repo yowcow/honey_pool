@@ -205,13 +205,18 @@ conn_open(
     end.
 
 -spec conn_cancel_await_up(Pid :: pid(), State :: state()) -> ok.
-conn_cancel_await_up(Pid, #state{tabid = TabId}) ->
+conn_cancel_await_up(Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [{_, Conn}] ->
+            TRef = case Conn#conn.timer_ref of
+                        undefined -> idle_timer(Pid, IdleTimeout);
+                        V -> V
+                   end,
             ets:insert(
               TabId,
               {{pid, Pid}, Conn#conn{
-                             requester = undefined
+                             requester = undefined,
+                             timer_ref = TRef
                             }}
              ),
             ok;
@@ -256,6 +261,7 @@ conn_up(Pid, Protocol, #state{tabid = TabId} = State) ->
             case Conn#conn.requester of
                 undefined ->
                     %% requester has canceled -> just keep pid in the pool
+                    cancel_idle_timer(Conn#conn.timer_ref),
                     conn_checkin(Conn#conn.hostinfo, Pid, State);
                 Requester ->
                     %% notify requester and tag that conn is checked out
