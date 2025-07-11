@@ -9,16 +9,16 @@
 -spec parse(string() | binary()) -> {ok, uri()} | {error, term()}.
 parse(Uri) when is_binary(Uri) ->
     parse(binary_to_list(Uri));
-parse(Uri0) ->
-    {Uri, Query} =
-    case string:split(Uri0, "?") of
-        [U1, U2] ->
-            {U1, U2};
-        [U1] ->
-            {U1, ""}
+parse(Uri) ->
+    {UriWithoutQuery, Query} =
+    case string:split(Uri, "?") of
+        [UriPart, QueryPart] ->
+            {UriPart, QueryPart};
+        [UriPart] ->
+            {UriPart, ""}
     end,
     try
-        Parsed = uri_string:parse(Uri),
+        Parsed = uri_string:parse(UriWithoutQuery),
         Transport =
         case maps:find(scheme, Parsed) of
             {ok, "https"} -> tls;
@@ -52,6 +52,6 @@ parse(Uri0) ->
                }}
     catch
         _:Err ->
-            {error, {Err, Uri}}
+            {error, {Err, UriWithoutQuery}}
     end.
 
