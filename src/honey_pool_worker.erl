@@ -43,7 +43,8 @@ init(Args) ->
      #state{
        tabid = ets:new(?ETS_TABLE, [set]),
        gun_opts = maps:merge(?DEFAULT_OPTS, proplists:get_value(gun_opts, Args, #{})),
-       idle_timeout = proplists:get_value(idle_timeout, Args, infinity)
+       idle_timeout = proplists:get_value(idle_timeout, Args, infinity),
+       await_up_timeout = proplists:get_value(await_up_timeout, Args, 5000)
       }}.
 
 
@@ -195,7 +196,7 @@ conn_open({Host, Port, Transport},
 
 
 -spec conn_cancel_await_up(Pid :: pid(), State :: state()) -> ok.
-conn_cancel_await_up(Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) ->
+conn_cancel_await_up(Pid, #state{tabid = TabId, await_up_timeout = AwaitUpTimeout}) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [{_, Conn = #conn{timer_ref = TRef}}] ->
             cancel_idle_timer(TRef),
@@ -203,7 +204,7 @@ conn_cancel_await_up(Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) ->
                        {{pid, Pid},
                         Conn#conn{
                           requester = undefined,
-                          timer_ref = idle_timer(Pid, IdleTimeout)
+                          timer_ref = idle_timer(Pid, AwaitUpTimeout)
                          }}),
             ok;
         _ ->
