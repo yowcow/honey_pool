@@ -201,7 +201,10 @@ conn_cancel_await_up(Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) ->
             cancel_idle_timer(TRef),
             ets:insert(TabId,
                        {{pid, Pid},
-                        Conn#conn{requester = undefined, timer_ref = idle_timer(Pid, IdleTimeout)}}),
+                        Conn#conn{
+                          requester = undefined,
+                          timer_ref = idle_timer(Pid, IdleTimeout)
+                         }}),
             ok;
         _ ->
             ok
@@ -247,7 +250,8 @@ conn_up(Pid, Protocol, #state{tabid = TabId} = State) ->
                 Requester ->
                     %% notify requester and tag that conn is checked out
                     Requester ! {gun_up, Pid, Protocol},
-                    ets:insert(TabId, {{pid, Pid}, Conn#conn{state = checked_out, requester = undefined}}),
+                    ets:insert(TabId,
+                               {{pid, Pid}, Conn#conn{state = checked_out, requester = undefined}}),
                     {ok, {Conn#conn.hostinfo, Pid}}
             end;
         _ ->
