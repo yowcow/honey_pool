@@ -7,6 +7,6 @@ test:
 	$(REBAR3) do eunit,xref,dialyzer
 
 format:
-	$(REBAR3) efmt -w -- src/** test/**
+	$(REBAR3) efmt -w -- src/** include/** test/**
 
 .PHONY: all test format
