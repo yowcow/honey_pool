@@ -7,11 +7,9 @@
    [kernel,
     stdlib,
     gun,
-    worker_pool
-   ]},
-  {env,[]},
+    worker_pool]},
+  {env, []},
   {modules, []},
 
   {licenses, ["Apache 2.0"]},
-  {links, []}
- ]}.
+  {links, []}]}.
