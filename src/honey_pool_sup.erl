@@ -13,8 +13,10 @@
 
 -define(SERVER, ?MODULE).
 
+
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+
 
 %% sup_flags() = #{strategy => strategy(),         % optional
 %%                 intensity => non_neg_integer(), % optional
@@ -39,27 +41,17 @@ init([]) ->
                       #{},
                       lists:flatten(
                         application:get_env(honey_pool, wpool, []),
-                        [
-                         {workers, 2},
+                        [{workers, 2},
                          {overrun_warning, 300},
                          {worker,
-                          {honey_pool_worker, [
-                                               {gun_opts, GunOpts},
-                                               {idle_timeout, IdleTimeout}
-                                              ]}}
-                        ]
-                       )
-                     )
-                   ),
-    ChildSpecs = [
-                  #{
+                          {honey_pool_worker, [{gun_opts, GunOpts},
+                                               {idle_timeout, IdleTimeout}]}}]))),
+    ChildSpecs = [#{
                     id => honey_pool_workers,
                     start => {wpool, start_pool, [honey_pool_worker, WpoolConfig]},
                     restart => permanent,
                     type => worker
-                   }
-                 ],
+                   }],
     {ok, {SupFlags, ChildSpecs}}.
 
 %% internal functions
-
