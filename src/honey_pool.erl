@@ -230,7 +230,7 @@ checkout(HostInfo, Timeout) ->
 
 -spec cancel_await_up(ReturnTo :: pid(), Conn :: conn()) -> ok.
 cancel_await_up(ReturnTo, {Pid, MRef}) ->
-    demonitor(MRef),
+    demonitor(MRef, [flush]),
     return_to(ReturnTo, Pid, {cancel_await_up, Pid}).
 
 
