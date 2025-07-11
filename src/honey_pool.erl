@@ -238,9 +238,7 @@ checkout(HostInfo, Timeout) ->
 
 -spec cancel_await_up(ReturnTo :: pid(), Conn :: conn()) -> ok.
 cancel_await_up(ReturnTo, {Pid, MRef}) ->
-    %% explicitly cancel the await_up request
     demonitor(MRef),
-    gun:close(Pid),
     return_to(ReturnTo, Pid, {cancel_await_up, Pid}).
 
 -spec checkin(ReturnTo :: pid(), HostInfo :: hostinfo(), Conn :: conn()) -> ok.
