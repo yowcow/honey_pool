@@ -215,27 +215,29 @@ conn_cancel_await_up(Pid, #state{tabid = TabId, await_up_timeout = AwaitUpTimeou
 -spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) ->
           {ok, term()}.
 conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) ->
-    case ets:lookup(TabId, {pid, Pid}) of
-        [] ->
-            ets:insert(TabId,
-                       {{pid, Pid},
-                        #conn{
-                          hostinfo = HostInfo,
-                          state = checked_in,
-                          monitor_ref = monitor(process, Pid),
-                          timer_ref = idle_timer(Pid, IdleTimeout)
-                         }});
-        [{_, Conn}] ->
-            ets:insert(TabId,
-                       {{pid, Pid},
-                        Conn#conn{state = checked_in, timer_ref = idle_timer(Pid, IdleTimeout)}})
-    end,
-    case ets:lookup(TabId, {pool, HostInfo}) of
-        [] ->
-            ets:insert(TabId, {{pool, HostInfo}, [Pid]});
-        [{_, Pids}] ->
-            ets:insert(TabId, {{pool, HostInfo}, [Pid | Pids]})
-    end,
+    ConnToKeep =
+        case ets:lookup(TabId, {pid, Pid}) of
+            [] ->
+                #conn{
+                  hostinfo = HostInfo,
+                  state = checked_in,
+                  monitor_ref = monitor(process, Pid),
+                  timer_ref = idle_timer(Pid, IdleTimeout)
+                 };
+            [{_, Conn}] ->
+                Conn#conn{state = checked_in, timer_ref = idle_timer(Pid, IdleTimeout)}
+        end,
+    %% insert to the connection pid table
+    ets:insert(TabId, {{pid, Pid}, ConnToKeep}),
+    PidsToPool =
+        case ets:lookup(TabId, {pool, HostInfo}) of
+            [] ->
+                [Pid];
+            [{_, Pids}] ->
+                [Pid | Pids]
+        end,
+    %% insert to the host connection pool
+    ets:insert(TabId, {{pool, HostInfo}, PidsToPool}),
     {ok, {HostInfo, Pid}}.
 
 
