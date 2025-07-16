@@ -272,12 +272,11 @@ conn_up(Pid, Protocol, #state{tabid = TabId} = State) ->
 
 -spec conn_down(pid(), state()) -> {ok, term()}.
 conn_down(Pid, #state{tabid = TabId}) ->
-    case ets:lookup(TabId, {pid, Pid}) of
+    case ets:take(TabId, {pid, Pid}) of
         [{_, Conn}] ->
             HostInfo = Conn#conn.hostinfo,
             demonitor(Conn#conn.monitor_ref, [flush]),
             cancel_idle_timer(Conn#conn.timer_ref),
-            ets:delete(TabId, {pid, Pid}),
             case ets:lookup(TabId, {pool, HostInfo}) of
                 [{_, Pids}] ->
                     ets:insert(TabId, {{pool, HostInfo}, [ P || P <- Pids, P =/= Pid ]});
