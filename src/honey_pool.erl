@@ -94,7 +94,7 @@ request(Method, Url, Headers, Body, Opts, Timeout) ->
                                     [HostInfo,
                                      Timeout]),
             case Checkout of
-                {ok, {ReturnTo, {Pid, _} = Conn}} ->
+                {ok, {ReturnTo, Conn}} ->
                     Result = do_request(
                                Conn,
                                Method,
@@ -103,27 +103,23 @@ request(Method, Url, Headers, Body, Opts, Timeout) ->
                                Body,
                                Opts,
                                next_timeout(Timeout, Elapsed)),
-                    case Result of
-                        {ok, {Status, _, _}} ->
-                            ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~.10b",
-                                       [self(), Pid, Method, Url, Status]),
-                            checkin(ReturnTo, HostInfo, Conn);
-                        {error, {timeout, _}} = TimeoutErr ->
-                            ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p",
-                                       [self(), Pid, Method, Url, TimeoutErr]),
-                            cleanup(Conn);
-                        ReqErr ->
-                            ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p",
-                                       [self(), Pid, Method, Url, ReqErr]),
-                            cleanup(Conn)
-                    end,
-                    Result;
+                    handle_request_result(Result, ReturnTo, HostInfo, Conn, Method, Url);
                 {error, Reason} ->
                     {error, {checkout, Reason}}
             end;
         {error, Reason} ->
             {error, {uri, Reason}}
     end.
+
+
+handle_request_result({ok, {Status, _, _}} = Result, ReturnTo, HostInfo, {Pid, _} = Conn, Method, Url) ->
+    ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~.10b", [self(), Pid, Method, Url, Status]),
+    checkin(ReturnTo, HostInfo, Conn),
+    Result;
+handle_request_result(Err, _ReturnTo, _HostInfo, {Pid, _} = Conn, Method, Url) ->
+    ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, Err]),
+    cleanup(Conn),
+    Err.
 
 
 -spec do_request(Conn :: conn(),
