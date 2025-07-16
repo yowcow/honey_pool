@@ -23,12 +23,10 @@ parse(Uri) ->
                 {ok, "https"} -> tls;
                 _ -> tcp
             end,
-        Path =
-            case maps:find(path, Parsed) of
-                {ok, ""} -> "/";
-                {ok, V} -> V;
-                _ -> "/"
-            end,
+        Path = case maps:get(path, Parsed, "") of
+                   "" -> "/";
+                   P -> P
+               end,
         Port = maps:get(
                  port,
                  Parsed,
