@@ -39,12 +39,13 @@
 %% gen_server funs
 %%
 init(Args) ->
+    Opts = maps:from_list(Args),
     {ok,
      #state{
        tabid = ets:new(?ETS_TABLE, [set]),
-       gun_opts = maps:merge(?DEFAULT_OPTS, proplists:get_value(gun_opts, Args, #{})),
-       idle_timeout = proplists:get_value(idle_timeout, Args, infinity),
-       await_up_timeout = proplists:get_value(await_up_timeout, Args, 5000)
+       gun_opts = maps:merge(?DEFAULT_OPTS, maps:get(gun_opts, Opts, #{})),
+       idle_timeout = maps:get(idle_timeout, Opts, infinity),
+       await_up_timeout = maps:get(await_up_timeout, Opts, 5000)
       }}.
 
 
