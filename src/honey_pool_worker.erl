@@ -39,12 +39,13 @@
 %% gen_server funs
 %%
 init(Args) ->
+    Opts = maps:from_list(Args),
     {ok,
      #state{
        tabid = ets:new(?ETS_TABLE, [set]),
-       gun_opts = maps:merge(?DEFAULT_OPTS, proplists:get_value(gun_opts, Args, #{})),
-       idle_timeout = proplists:get_value(idle_timeout, Args, infinity),
-       await_up_timeout = proplists:get_value(await_up_timeout, Args, 5000)
+       gun_opts = maps:merge(?DEFAULT_OPTS, maps:get(gun_opts, Opts, #{})),
+       idle_timeout = maps:get(idle_timeout, Opts, infinity),
+       await_up_timeout = maps:get(await_up_timeout, Opts, 5000)
       }}.
 
 
@@ -215,27 +216,29 @@ conn_cancel_await_up(Pid, #state{tabid = TabId, await_up_timeout = AwaitUpTimeou
 -spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) ->
           {ok, term()}.
 conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) ->
-    case ets:lookup(TabId, {pid, Pid}) of
-        [] ->
-            ets:insert(TabId,
-                       {{pid, Pid},
-                        #conn{
-                          hostinfo = HostInfo,
-                          state = checked_in,
-                          monitor_ref = monitor(process, Pid),
-                          timer_ref = idle_timer(Pid, IdleTimeout)
-                         }});
-        [{_, Conn}] ->
-            ets:insert(TabId,
-                       {{pid, Pid},
-                        Conn#conn{state = checked_in, timer_ref = idle_timer(Pid, IdleTimeout)}})
-    end,
-    case ets:lookup(TabId, {pool, HostInfo}) of
-        [] ->
-            ets:insert(TabId, {{pool, HostInfo}, [Pid]});
-        [{_, Pids}] ->
-            ets:insert(TabId, {{pool, HostInfo}, [Pid | Pids]})
-    end,
+    ConnToKeep =
+        case ets:lookup(TabId, {pid, Pid}) of
+            [] ->
+                #conn{
+                  hostinfo = HostInfo,
+                  state = checked_in,
+                  monitor_ref = monitor(process, Pid),
+                  timer_ref = idle_timer(Pid, IdleTimeout)
+                 };
+            [{_, Conn}] ->
+                Conn#conn{state = checked_in, timer_ref = idle_timer(Pid, IdleTimeout)}
+        end,
+    %% insert to the connection pid table
+    ets:insert(TabId, {{pid, Pid}, ConnToKeep}),
+    PidsToPool =
+        case ets:lookup(TabId, {pool, HostInfo}) of
+            [] ->
+                [Pid];
+            [{_, Pids}] ->
+                [Pid | Pids]
+        end,
+    %% insert to the host connection pool
+    ets:insert(TabId, {{pool, HostInfo}, PidsToPool}),
     {ok, {HostInfo, Pid}}.
 
 
@@ -270,12 +273,11 @@ conn_up(Pid, Protocol, #state{tabid = TabId} = State) ->
 
 -spec conn_down(pid(), state()) -> {ok, term()}.
 conn_down(Pid, #state{tabid = TabId}) ->
-    case ets:lookup(TabId, {pid, Pid}) of
+    case ets:take(TabId, {pid, Pid}) of
         [{_, Conn}] ->
             HostInfo = Conn#conn.hostinfo,
             demonitor(Conn#conn.monitor_ref, [flush]),
             cancel_idle_timer(Conn#conn.timer_ref),
-            ets:delete(TabId, {pid, Pid}),
             case ets:lookup(TabId, {pool, HostInfo}) of
                 [{_, Pids}] ->
                     ets:insert(TabId, {{pool, HostInfo}, [ P || P <- Pids, P =/= Pid ]});
