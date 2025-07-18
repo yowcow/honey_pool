@@ -78,7 +78,7 @@ post(Url, Headers, Body, Timeout) ->
     post(Url, Headers, Body, #{}, Timeout).
 
 
-%% @doc Performs a POST request with the given headers, body, options and timeout.
+%% @doc Performs a POST request with the given headers, body, options, and timeout. This is the complete form of the POST function and requires all five parameters to be specified.
 -spec post(Url :: url(),
            Headers :: req_headers(),
            Body :: binary(),
