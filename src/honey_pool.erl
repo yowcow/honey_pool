@@ -50,7 +50,7 @@ get(Url, Headers, Timeout) ->
     get(Url, Headers, #{}, Timeout).
 
 
-%% @doc Performs a GET request with the given headers, options and timeout.
+%% @doc Performs a GET request with the given headers, options, and timeout. This is the complete form of the GET function and requires all four parameters: Url, Headers, Opts, and Timeout.
 -spec get(Url :: url(), Headers :: req_headers(), Opts :: gun_req_opts(), Timeout :: timeout()) ->
           resp().
 get(Url, Headers, Opts, Timeout) ->
