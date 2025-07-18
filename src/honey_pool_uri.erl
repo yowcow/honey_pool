@@ -5,6 +5,7 @@
 -include("include/honey_pool.hrl").
 
 
+-doc "Parses a URL string into a uri record.".
 -spec parse(string() | binary()) -> {ok, uri()} | {error, term()}.
 parse(Uri) when is_binary(Uri) ->
     parse(binary_to_list(Uri));
