@@ -13,7 +13,7 @@
 
 -define(SERVER, ?MODULE).
 
-
+%% @doc Starts the honey_pool supervisor.
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 

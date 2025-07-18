@@ -35,9 +35,10 @@
 -type timer_ref() :: reference() | undefined.
 
 
-%%
-%% gen_server funs
-%%
+%% @doc Callback functions for the honey_pool_worker gen_server.
+
+%% @doc Initializes the honey_pool_worker.
+-spec init(Args :: list()) -> {ok, state()}.
 init(Args) ->
     Opts = maps:from_list(Args),
     {ok,
@@ -49,6 +50,8 @@ init(Args) ->
       }}.
 
 
+%% @doc Terminates the honey_pool_worker.
+-spec terminate(Reason :: term(), State :: state()) -> ok.
 terminate(Reason, State) ->
     ?LOG_INFO("(~p) terminating worker: ~p", [self(), Reason]),
     Pids =
@@ -64,6 +67,9 @@ terminate(Reason, State) ->
     ok.
 
 
+%% @doc Handles call messages.
+-spec handle_call(Req :: term(), From :: {pid(), term()}, State :: state()) ->
+          {reply, term(), state()}.
 handle_call({checkout, HostInfo} = Req, {Requester, _}, State) ->
     Result = conn_checkout(HostInfo, Requester, State),
     ?LOG_DEBUG("(~p) handle_call (~p) -> ~p", [self(), Req, Result]),
@@ -75,6 +81,8 @@ handle_call(Req, From, State) ->
     {reply, {error, no_handler}, State}.
 
 
+%% @doc Handles cast messages.
+-spec handle_cast(Req :: term(), State :: state()) -> {noreply, state()}.
 handle_cast({checkin, HostInfo, Pid} = Req, State) ->
     Result = conn_checkin(HostInfo, Pid, State),
     ?LOG_DEBUG("(~p) handle_cast (~p) -> ~p", [self(), Req, Result]),
@@ -88,6 +96,8 @@ handle_cast(Req, State) ->
     {noreply, State}.
 
 
+%% @doc Handles info messages.
+-spec handle_info(Req :: term(), State :: state()) -> {noreply, state()}.
 handle_info({idle_timeout, Pid} = Req, State) ->
     Result = conn_down(Pid, State),
     gun:close(Pid),
