@@ -28,13 +28,13 @@
 -type url() :: string().
 
 
--doc "Performs a GET request.".
+%% @doc Performs a GET request.
 -spec get(Url :: url()) -> resp().
 get(Url) ->
     get(Url, []).
 
 
--doc "Performs a GET request with the given headers and timeout.".
+%% @doc Performs a GET request with the given headers and timeout.
 -spec get(Url :: url(), Headers :: req_headers() | timeout()) -> resp().
 get(Url, Headers) when is_list(Headers) ->
     get(Url, Headers, #{});
@@ -42,7 +42,7 @@ get(Url, Timeout) ->
     get(Url, [], Timeout).
 
 
--doc "Performs a GET request with the given headers, options and timeout.".
+%% @doc Performs a GET request with the given headers, options and timeout.
 -spec get(Url :: url(), Headers :: req_headers(), Opts :: gun_req_opts() | timeout()) -> resp().
 get(Url, Headers, Opts) when is_map(Opts) ->
     get(Url, Headers, Opts, infinity);
@@ -50,26 +50,26 @@ get(Url, Headers, Timeout) ->
     get(Url, Headers, #{}, Timeout).
 
 
--doc "Performs a GET request with the given headers, options and timeout.".
+%% @doc Performs a GET request with the given headers, options and timeout.
 -spec get(Url :: url(), Headers :: req_headers(), Opts :: gun_req_opts(), Timeout :: timeout()) ->
           resp().
 get(Url, Headers, Opts, Timeout) ->
     request(?METHOD_GET, Url, Headers, <<>>, Opts, Timeout).
 
 
--doc "Performs a POST request with the given headers.".
+%% @doc Performs a POST request with the given headers.
 -spec post(Url :: url(), Headers :: req_headers()) -> resp().
 post(Url, Headers) ->
     post(Url, Headers, <<>>).
 
 
--doc "Performs a POST request with the given headers and body.".
+%% @doc Performs a POST request with the given headers and body.
 -spec post(Url :: url(), Headers :: req_headers(), Body :: binary()) -> resp().
 post(Url, Headers, Body) ->
     post(Url, Headers, Body, #{}).
 
 
--doc "Performs a POST request with the given headers, body, options and timeout.".
+%% @doc Performs a POST request with the given headers, body, options and timeout.
 -spec post(Url :: url(), Headers :: req_headers(), Body :: binary(), Opts :: gun_req_opts() | timeout()) -> resp().
 post(Url, Headers, Body, Opts) when is_map(Opts) ->
     post(Url, Headers, Body, Opts, infinity);
@@ -77,7 +77,7 @@ post(Url, Headers, Body, Timeout) ->
     post(Url, Headers, Body, #{}, Timeout).
 
 
--doc "Performs a POST request with the given headers, body, options and timeout.".
+%% @doc Performs a POST request with the given headers, body, options and timeout.
 -spec post(Url :: url(),
            Headers :: req_headers(),
            Body :: binary(),
@@ -87,7 +87,7 @@ post(Url, Headers, Body, Opts, Timeout) ->
     request(?METHOD_POST, Url, Headers, Body, Opts, Timeout).
 
 
--doc "Performs a request with the given method, url, headers, body, options and timeout.".
+%% @doc Performs a request with the given method, url, headers, body, options and timeout.
 -spec request(Method :: method(),
               Url :: url(),
               Headers :: req_headers(),
@@ -259,14 +259,14 @@ return_to(ReturnTo, Pid, Msg) ->
     gen_server:cast(ReturnTo, Msg).
 
 
--doc "Dumps the state of all honey_pool_worker processes.".
+%% @doc Dumps the state of all honey_pool_worker processes.
 -spec dump_state() -> [map()].
 dump_state() ->
     [ gen_server:call(Proc, dump_state)
       || Proc <- wpool:get_workers(honey_pool_worker) ].
 
 
--doc "Summarizes the state of all honey_pool_worker processes.".
+%% @doc Summarizes the state of all honey_pool_worker processes.
 -spec summarize_state() -> [map()].
 summarize_state() ->
     [ summarize_state(S) || S <- dump_state() ].
