@@ -69,7 +69,8 @@ post(Url, Headers, Body) ->
     post(Url, Headers, Body, #{}).
 
 
-%% @doc Performs a POST request with the given headers, body, options and timeout.
+%% @doc Performs a POST request with the given headers, body, and either options (map) or timeout.
+%% This is an overloaded version of the function that accepts either `Opts` (a map) or `Timeout`.
 -spec post(Url :: url(), Headers :: req_headers(), Body :: binary(), Opts :: gun_req_opts() | timeout()) -> resp().
 post(Url, Headers, Body, Opts) when is_map(Opts) ->
     post(Url, Headers, Body, Opts, infinity);
