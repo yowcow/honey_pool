@@ -1,6 +1,7 @@
 -module(honey_pool_stress_tests).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -export([init/2]).
 
@@ -39,7 +40,7 @@ cleanup(#{apps := Apps}) ->
 -define(CONCURRENCY,          100).
 -define(REQS_PER_CHILD,       100).
 -define(RESPONSE_STATUS_CODE, 200).
--define(RESPONSE_DELAY,       20).
+-define(RESPONSE_MAX_DELAY,   20).
 -define(RESPONSE_BODY,        <<"Hello">>).
 
 
@@ -92,11 +93,16 @@ collect_from_children(Workers, Results) ->
     receive
         {Child, Result} ->
             collect_from_children(lists:delete(Child, Workers), [Result | Results])
+    after
+        5000 ->
+            ?LOG_ERROR("Timeout waiting for child processes to finish"),
+            []
     end.
 
 
 init(Req0, State) ->
-    timer:sleep(?RESPONSE_DELAY),
+    Delay = rand:uniform(?RESPONSE_MAX_DELAY),  % Random delay to simulate variability
+    timer:sleep(Delay),
     Req = cowboy_req:reply(?RESPONSE_STATUS_CODE,
                            #{<<"content-type">> => <<"text/plain">>},
                            ?RESPONSE_BODY,
