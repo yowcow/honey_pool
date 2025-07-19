@@ -39,6 +39,7 @@ cleanup(#{apps := Apps}) ->
 
 -define(CONCURRENCY,          100).
 -define(REQS_PER_CHILD,       100).
+-define(CHILD_TIMEOUT,        5000).  % Timeout for child processes to finish
 -define(RESPONSE_STATUS_CODE, 200).
 -define(RESPONSE_MAX_DELAY,   20).
 -define(RESPONSE_BODY,        <<"Hello">>).
@@ -101,7 +102,6 @@ collect_from_children(Workers, Results) ->
 
 
 init(Req0, State) ->
-    rand:seed({os:timestamp(), self()}),  % Seed the random number generator for true randomness
     Delay = rand:uniform(?RESPONSE_MAX_DELAY),  % Random delay to simulate variability
     timer:sleep(Delay),
     Req = cowboy_req:reply(?RESPONSE_STATUS_CODE,
