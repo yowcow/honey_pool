@@ -6,7 +6,7 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--include("include/honey_pool.hrl").
+-include("honey_pool.hrl").
 
 -define(DEFAULT_OPTS,
         #{
