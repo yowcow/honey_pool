@@ -39,4 +39,3 @@
 
 %% @doc A parsed URI.
 -type uri() :: #uri{}.
-

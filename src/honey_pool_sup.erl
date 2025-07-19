@@ -13,6 +13,7 @@
 
 -define(SERVER, ?MODULE).
 
+
 %% @doc Starts the honey_pool supervisor.
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
@@ -37,12 +38,14 @@ init([]) ->
     IdleTimeout = application:get_env(honey_pool, idle_timeout, infinity),
     WpoolUserConfig = application:get_env(honey_pool, wpool, []),
     WpoolDefaultConfig =
-        #{workers => 2,
+        #{
+          workers => 2,
           overrun_warning => 300,
           worker =>
               {honey_pool_worker,
                [{gun_opts, GunOpts},
-                {idle_timeout, IdleTimeout}]}},
+                {idle_timeout, IdleTimeout}]}
+         },
     WpoolConfig =
         maps:to_list(
           maps:merge(WpoolDefaultConfig, maps:from_list(WpoolUserConfig))),

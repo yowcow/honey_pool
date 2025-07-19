@@ -34,8 +34,8 @@
 -type requester() :: pid() | undefined.
 -type timer_ref() :: reference() | undefined.
 
-
 %% @doc Callback functions for the honey_pool_worker gen_server.
+
 
 %% @doc Initializes the honey_pool_worker.
 -spec init(Args :: list()) -> {ok, state()}.
