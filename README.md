@@ -1,32 +1,41 @@
 ![master branch](https://github.com/yowcow/honey_pool/actions/workflows/ci.yml/badge.svg?branch=master)
 
-honey_pool
-=====
+# honey_pool
 
-honey_pool is yet another gun connection pool based on worker pool.
+`honey_pool` is a robust Erlang connection pool for `gun`, designed to manage HTTP connections efficiently and reliably. It leverages a worker pool to handle multiple `gun` connection pools, providing a stable solution for applications with high volumes of concurrent HTTP requests.
 
-**Alpha Quality**: Things can change.
+**Beta Quality**: This library is stable and suitable for testing in non-critical production environments. While the API is largely stable, minor changes may occur based on feedback.
 
+## Why Use honey_pool?
 
-WHY Honey Pool
---------------
+`honey_pool` addresses common issues encountered with other connection pooling solutions (like `hackney_pool`) when dealing with massive amounts of HTTP requests, such as hangs or instability. By distributing and managing `gun` HTTP connections across multiple worker pools, `honey_pool` ensures smoother operation and improved resilience under heavy load.
 
-Consider using honey_pool when your hackney_pool hangs while sending massive amount of HTTP reqs.
-honey_pool starts multiple connection pools using worker pool, and manages gun HTTP connections in the pools.
+## Features
 
+*   Efficient management of `gun` HTTP connections.
+*   Utilizes `worker_pool` for robust concurrency.
+*   Configurable connection timeouts and worker pool settings.
+*   Provides state dumping and summarization for monitoring.
 
-HOW TO USE
-----------
+## Getting Started
 
-In the rebar.config deps, have:
+### Add to Your Project
 
-```
+Include `honey_pool` in your `rebar.config` dependencies:
+
+```erlang
 {honey_pool, {git, "git://github.com/yowcow/honey_pool.git", {branch, "master"}}}
 ```
 
-and start application `honey_pool` in your app, then try in shell:
+### Start the Application
 
-```
+Ensure `honey_pool` is started in your application's `.app` file or by calling `application:ensure_all_started(honey_pool)`.
+
+### Basic Usage
+
+Here's how you can interact with `honey_pool` in the Erlang shell:
+
+```erlang
 1> logger:set_primary_config(level, info).
 ok
 
@@ -41,40 +50,40 @@ ok
 4> honey_pool:dump_state().
 [#{await_up_conns => #{},
    host_conns =>
-       #{{"example.com",80,tcp} =>
+       #{{<<"example.com">>,80,tcp} =>
              [{<0.195.0>,#Ref<0.485877779.3106144257.39748>,
-               #Ref<0.485877779.3106144257.39749>}]},
-   up_conns => #{<0.195.0> => {"example.com",80,tcp}}},
+               #Ref<0.485877779.3106144257.39749>}]}},
+   up_conns => #{<0.195.0> => {<<"example.com">>,80,tcp}}},
  #{await_up_conns => #{},host_conns => #{},up_conns => #{}},
  #{await_up_conns => #{},host_conns => #{},up_conns => #{}}]
 
 5> honey_pool:summarize_state().
-[#{host_conns => [{{"example.com",80,tcp},1}],
+[#{host_conns => [{{<<"example.com">>,80,tcp},1}],
    total_conns => #{await_up => 0,up => 1}},
  #{host_conns => [],total_conns => #{await_up => 0,up => 0}},
  #{host_conns => [],total_conns => #{await_up => 0,up => 0}}]
 ```
 
+## Configuration
 
-HOW TO CONFIGURE
-----------------
+Configure `honey_pool` in your `sys.config` file:
 
-In the sys.config, have:
-
-```
+```erlang
 {honey_pool, [
-              %% honey pool configurations
-              {idle_timeout, 60000}, %% close connection after 60 sec of idle
-              {await_up_timeout, 5000}, %% max. time (in milliseconds) to wait for a newly opened connection to become available.
-              %% worker pool configurations (see worker pool docs for details)
+              %% honey_pool configurations
+              {idle_timeout, 60000},    %% Close connection after 60 seconds of idle time.
+              {await_up_timeout, 5000}, %% Max. time (in milliseconds) to wait for a newly opened connection to become available.
+
+              %% worker_pool configurations (see worker_pool documentation for details)
               {wpool, [
-                       {workers, 10}, %% start 10 connection pools
-                       {overrun_warning, 50} %% warn when a pool takes over 50 msec to respond
+                       {workers, 10},          %% Start 10 connection pools.
+                       {overrun_warning, 50}   %% Warn when a pool takes over 50 msec to respond.
                       ]},
-              %% gun configurations (see gun docs for details)
+
+              %% gun configurations (see gun documentation for details)
               {gun_opt, #{
-                          retry => 0, %% let go dead connections
-                          connect_timeout => 1000 %% give up connecting after 1000 msec
+                          retry => 0,          %% Let go dead connections.
+                          connect_timeout => 1000 %% Give up connecting after 1000 msec.
                          }}
              ]}
 ```
