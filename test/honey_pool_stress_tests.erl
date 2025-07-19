@@ -94,7 +94,7 @@ collect_from_children(Workers, Results) ->
         {Child, Result} ->
             collect_from_children(lists:delete(Child, Workers), [Result | Results])
     after
-        5000 ->
+        ?CHILD_TIMEOUT ->
             ?LOG_ERROR("Timeout waiting for child processes to finish"),
             []
     end.
