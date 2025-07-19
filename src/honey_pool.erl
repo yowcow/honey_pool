@@ -9,11 +9,10 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--include("include/honey_pool.hrl").
+-include("honey_pool.hrl").
 
--define(USER_AGENT, "honey-pool/0.1").
--define(WORKER,     honey_pool_worker).
-
+-define(USER_AGENT,  "honey-pool/0.1").
+-define(WORKER,      honey_pool_worker).
 -define(METHOD_GET,  <<"GET">>).
 -define(METHOD_POST, <<"POST">>).
 
@@ -43,7 +42,8 @@ get(Url, Timeout) ->
 
 
 %% @doc Performs a GET request with the given headers, options and timeout.
--spec get(Url :: url(), Headers :: req_headers(), Opts :: gun_req_opts() | timeout()) -> resp().
+-spec get(Url :: url(), Headers :: req_headers(), Opts :: gun_req_opts() | timeout()) ->
+          resp().
 get(Url, Headers, Opts) when is_map(Opts) ->
     get(Url, Headers, Opts, infinity);
 get(Url, Headers, Timeout) ->
@@ -51,7 +51,10 @@ get(Url, Headers, Timeout) ->
 
 
 %% @doc Performs a GET request with the given headers, options, and timeout. This is the complete form of the GET function and requires all four parameters: Url, Headers, Opts, and Timeout.
--spec get(Url :: url(), Headers :: req_headers(), Opts :: gun_req_opts(), Timeout :: timeout()) ->
+-spec get(Url :: url(),
+          Headers :: req_headers(),
+          Opts :: gun_req_opts(),
+          Timeout :: timeout()) ->
           resp().
 get(Url, Headers, Opts, Timeout) ->
     request(?METHOD_GET, Url, Headers, <<>>, Opts, Timeout).
@@ -71,7 +74,11 @@ post(Url, Headers, Body) ->
 
 %% @doc Performs a POST request with the given headers, body, and either options (map) or timeout.
 %% This is an overloaded version of the function that accepts either `Opts` (a map) or `Timeout`.
--spec post(Url :: url(), Headers :: req_headers(), Body :: binary(), Opts :: gun_req_opts() | timeout()) -> resp().
+-spec post(Url :: url(),
+           Headers :: req_headers(),
+           Body :: binary(),
+           Opts :: gun_req_opts() | timeout()) ->
+          resp().
 post(Url, Headers, Body, Opts) when is_map(Opts) ->
     post(Url, Headers, Body, Opts, infinity);
 post(Url, Headers, Body, Timeout) ->
@@ -83,7 +90,8 @@ post(Url, Headers, Body, Timeout) ->
            Headers :: req_headers(),
            Body :: binary(),
            Opts :: gun_req_opts(),
-           Timeout :: timeout()) -> resp().
+           Timeout :: timeout()) ->
+          resp().
 post(Url, Headers, Body, Opts, Timeout) ->
     request(?METHOD_POST, Url, Headers, Body, Opts, Timeout).
 
@@ -94,25 +102,23 @@ post(Url, Headers, Body, Opts, Timeout) ->
               Headers :: req_headers(),
               Body :: binary() | no_data,
               Opts :: gun_req_opts(),
-              Timeout :: timeout()) -> resp().
+              Timeout :: timeout()) ->
+          resp().
 request(Method, Url, Headers, Body, Opts, Timeout) ->
     case honey_pool_uri:parse(Url) of
         {ok, U} ->
             HostInfo = {U#uri.host, U#uri.port, U#uri.transport},
-            {Elapsed, Checkout} = timer:tc(
-                                    fun checkout/2,
-                                    [HostInfo,
-                                     Timeout]),
+            {Elapsed, Checkout} = timer:tc(fun checkout/2, [HostInfo, Timeout]),
             case Checkout of
                 {ok, {ReturnTo, Conn}} ->
-                    Result = do_request(
-                               Conn,
-                               Method,
-                               U#uri.pathquery,
-                               Headers,
-                               Body,
-                               Opts,
-                               next_timeout(Timeout, Elapsed)),
+                    Result =
+                        do_request(Conn,
+                                   Method,
+                                   U#uri.pathquery,
+                                   Headers,
+                                   Body,
+                                   Opts,
+                                   next_timeout(Timeout, Elapsed)),
                     handle_request_result(Result, ReturnTo, HostInfo, Conn, Method, Url);
                 {error, Reason} ->
                     {error, {checkout, Reason}}
@@ -122,7 +128,12 @@ request(Method, Url, Headers, Body, Opts, Timeout) ->
     end.
 
 
-handle_request_result({ok, {Status, _, _}} = Result, ReturnTo, HostInfo, {Pid, _} = Conn, Method, Url) ->
+handle_request_result({ok, {Status, _, _}} = Result,
+                      ReturnTo,
+                      HostInfo,
+                      {Pid, _} = Conn,
+                      Method,
+                      Url) ->
     ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~.10b", [self(), Pid, Method, Url, Status]),
     checkin(ReturnTo, HostInfo, Conn),
     Result;
@@ -138,14 +149,12 @@ handle_request_result(Err, _ReturnTo, _HostInfo, {Pid, _} = Conn, Method, Url) -
                  Headers :: req_headers(),
                  Body :: iodata(),
                  Opts :: gun_req_opts(),
-                 Timeout :: timeout()) -> resp().
+                 Timeout :: timeout()) ->
+          resp().
 do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout) ->
     ReqHeaders = headers(Headers),
     StreamRef = gun:request(Pid, Method, Path, ReqHeaders, Body, Opts),
-    {Elapsed, Result} =
-        timer:tc(
-          fun gun:await/4,
-          [Pid, StreamRef, Timeout, MRef]),
+    {Elapsed, Result} = timer:tc(fun gun:await/4, [Pid, StreamRef, Timeout, MRef]),
     Resp =
         case Result of
             {response, fin, Status, RespHeaders} ->
@@ -167,8 +176,9 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout) ->
                 {ok, {Status, RespHeaders, no_data}};
             {error,
              {stream_error,
-              {stream_error, protocol_error,
-                             'Content-length header received in a 204 response. (RFC7230 3.3.2)'}}} ->
+              {stream_error,
+               protocol_error,
+               'Content-length header received in a 204 response. (RFC7230 3.3.2)'}}} ->
                 %% there exist servers that return content-length header and handle such responses as ordinary 204 response
                 {ok, {204, [], no_data}};
             {error, {stream_error, _} = Reason} ->
@@ -178,9 +188,8 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout) ->
             {error, Reason} ->
                 {error, {await, Reason}}
         end,
-    ?LOG_DEBUG(
-      "(~p) conn: ~p, request: ~p, response: ~p",
-      [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
+    ?LOG_DEBUG("(~p) conn: ~p, request: ~p, response: ~p",
+               [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
 
 
@@ -206,9 +215,7 @@ next_timeout(Timeout, MicroSec) ->
           {ok, {ReturnTo :: pid(), Conn :: conn()}} | {error, Reason :: term()}.
 checkout(HostInfo, Timeout) ->
     {Elapsed, Result} =
-        timer:tc(
-          fun wpool:call/4,
-          [?WORKER, {checkout, HostInfo}, best_worker, Timeout]),
+        timer:tc(fun wpool:call/4, [?WORKER, {checkout, HostInfo}, best_worker, Timeout]),
     try Result of
         {ok, {await_up, {ReturnTo, Pid}}} ->
             MRef = monitor(process, Pid),
@@ -263,8 +270,7 @@ return_to(ReturnTo, Pid, Msg) ->
 %% @doc Dumps the state of all honey_pool_worker processes.
 -spec dump_state() -> [map()].
 dump_state() ->
-    [ gen_server:call(Proc, dump_state)
-      || Proc <- wpool:get_workers(honey_pool_worker) ].
+    [ gen_server:call(Proc, dump_state) || Proc <- wpool:get_workers(honey_pool_worker) ].
 
 
 %% @doc Summarizes the state of all honey_pool_worker processes.
@@ -279,19 +285,16 @@ summarize_state(#{
                   checked_out_conns := OC,
                   pool_conns := PC
                  }) ->
-    PoolConns = lists:foldl(
-                  fun({Host, Pids}, Acc) ->
-                          [{Host, length(Pids)} | Acc]
-                  end,
-                  [],
-                  maps:to_list(PC)),
+    PoolConns =
+        lists:foldl(fun({Host, Pids}, Acc) -> [{Host, length(Pids)} | Acc] end,
+                    [],
+                    maps:to_list(PC)),
     #{
-      total_conns => #{
-                       await_up => maps:size(AC),
-                       checked_in => maps:size(IC),
-                       checked_out => maps:size(OC)
-                      },
-      pool_conns => lists:sort(
-                      fun({_, A}, {_, B}) -> A > B end,
-                      PoolConns)
+      total_conns =>
+          #{
+            await_up => maps:size(AC),
+            checked_in => maps:size(IC),
+            checked_out => maps:size(OC)
+           },
+      pool_conns => lists:sort(fun({_, A}, {_, B}) -> A > B end, PoolConns)
      }.

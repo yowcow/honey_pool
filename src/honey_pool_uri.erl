@@ -2,7 +2,7 @@
 
 -export([parse/1]).
 
--include("include/honey_pool.hrl").
+-include("honey_pool.hrl").
 
 
 %% @doc Parses a URL string into a uri record.
@@ -21,32 +21,42 @@ parse(Uri) ->
         Parsed = uri_string:parse(UriWithoutQuery),
         Transport =
             case maps:find(scheme, Parsed) of
-                {ok, "https"} -> tls;
-                _ -> tcp
+                {ok, "https"} ->
+                    tls;
+                _ ->
+                    tcp
             end,
-        Path = case maps:get(path, Parsed, "") of
-                   "" -> "/";
-                   P -> P
+        Path =
+            case maps:get(path, Parsed, "") of
+                "" ->
+                    "/";
+                P ->
+                    P
+            end,
+        Port =
+            maps:get(port,
+                     Parsed,
+                     case Transport of
+                         tls ->
+                             443;
+                         _ ->
+                             80
+                     end),
+        {ok,
+         #uri{
+           host = maps:get(host, Parsed, ""),
+           path = Path,
+           query = Query,
+           pathquery =
+               case Query of
+                   [] ->
+                       Path;
+                   _ ->
+                       [Path, "?", Query]
                end,
-        Port = maps:get(
-                 port,
-                 Parsed,
-                 case Transport of
-                     tls -> 443;
-                     _ -> 80
-                 end),
-        {ok, #uri{
-               host = maps:get(host, Parsed, ""),
-               path = Path,
-               query = Query,
-               pathquery =
-                   case Query of
-                       [] -> Path;
-                       _ -> [Path, "?", Query]
-                   end,
-               port = Port,
-               transport = Transport
-              }}
+           port = Port,
+           transport = Transport
+          }}
     catch
         _:Err ->
             {error, {Err, UriWithoutQuery}}
