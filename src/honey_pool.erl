@@ -50,7 +50,7 @@ get(Url, Headers, Timeout) ->
     get(Url, Headers, #{}, Timeout).
 
 
-%% @doc Performs a GET request with the given headers, options and timeout.
+%% @doc Performs a GET request with the given headers, options, and timeout. This is the complete form of the GET function and requires all four parameters: Url, Headers, Opts, and Timeout.
 -spec get(Url :: url(), Headers :: req_headers(), Opts :: gun_req_opts(), Timeout :: timeout()) ->
           resp().
 get(Url, Headers, Opts, Timeout) ->
@@ -69,7 +69,8 @@ post(Url, Headers, Body) ->
     post(Url, Headers, Body, #{}).
 
 
-%% @doc Performs a POST request with the given headers, body, options and timeout.
+%% @doc Performs a POST request with the given headers, body, and either options (map) or timeout.
+%% This is an overloaded version of the function that accepts either `Opts` (a map) or `Timeout`.
 -spec post(Url :: url(), Headers :: req_headers(), Body :: binary(), Opts :: gun_req_opts() | timeout()) -> resp().
 post(Url, Headers, Body, Opts) when is_map(Opts) ->
     post(Url, Headers, Body, Opts, infinity);
@@ -77,7 +78,7 @@ post(Url, Headers, Body, Timeout) ->
     post(Url, Headers, Body, #{}, Timeout).
 
 
-%% @doc Performs a POST request with the given headers, body, options and timeout.
+%% @doc Performs a POST request with the given headers, body, options, and timeout. This is the complete form of the POST function and requires all five parameters to be specified.
 -spec post(Url :: url(),
            Headers :: req_headers(),
            Body :: binary(),
