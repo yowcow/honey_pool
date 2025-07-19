@@ -101,6 +101,7 @@ collect_from_children(Workers, Results) ->
 
 
 init(Req0, State) ->
+    rand:seed({os:timestamp(), self()}),  % Seed the random number generator for true randomness
     Delay = rand:uniform(?RESPONSE_MAX_DELAY),  % Random delay to simulate variability
     timer:sleep(Delay),
     Req = cowboy_req:reply(?RESPONSE_STATUS_CODE,
