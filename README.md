@@ -12,10 +12,10 @@
 
 ## Features
 
-*   Efficient management of `gun` HTTP connections.
-*   Utilizes `worker_pool` for robust concurrency.
-*   Configurable connection timeouts and worker pool settings.
-*   Provides state dumping and summarization for monitoring.
+- Efficient management of `gun` HTTP connections.
+- Utilizes `worker_pool` for robust concurrency.
+- Configurable connection timeouts and worker pool settings.
+- Provides state dumping and summarization for monitoring.
 
 ## Getting Started
 
@@ -50,15 +50,15 @@ ok
 4> honey_pool:dump_state().
 [#{await_up_conns => #{},
    host_conns =>
-       #{{<<"example.com">>,80,tcp} =>
+       #{{"example.com",80,tcp} =>
              [{<0.195.0>,#Ref<0.485877779.3106144257.39748>,
                #Ref<0.485877779.3106144257.39749>}]}},
-   up_conns => #{<0.195.0> => {<<"example.com">>,80,tcp}}},
+   up_conns => #{<0.195.0> => {"example.com",80,tcp}}},
  #{await_up_conns => #{},host_conns => #{},up_conns => #{}},
  #{await_up_conns => #{},host_conns => #{},up_conns => #{}}]
 
 5> honey_pool:summarize_state().
-[#{host_conns => [{{<<"example.com">>,80,tcp},1}],
+[#{host_conns => [{{"example.com",80,tcp},1}],
    total_conns => #{await_up => 0,up => 1}},
  #{host_conns => [],total_conns => #{await_up => 0,up => 0}},
  #{host_conns => [],total_conns => #{await_up => 0,up => 0}}]
