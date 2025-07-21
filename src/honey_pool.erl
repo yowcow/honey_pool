@@ -50,7 +50,7 @@ get(Url, Headers, Timeout) ->
     get(Url, Headers, #{}, Timeout).
 
 
-%% @doc Performs a GET request with the given headers, options, and timeout. This is the complete form of the GET function and requires all four parameters: Url, Headers, Opts, and Timeout.
+%% @doc Performs a GET request with the given headers, options, and timeout.
 -spec get(Url :: url(),
           Headers :: req_headers(),
           Opts :: gun_req_opts(),
@@ -73,7 +73,6 @@ post(Url, Headers, Body) ->
 
 
 %% @doc Performs a POST request with the given headers, body, and either options (map) or timeout.
-%% This is an overloaded version of the function that accepts either `Opts` (a map) or `Timeout`.
 -spec post(Url :: url(),
            Headers :: req_headers(),
            Body :: binary(),
@@ -85,7 +84,7 @@ post(Url, Headers, Body, Timeout) ->
     post(Url, Headers, Body, #{}, Timeout).
 
 
-%% @doc Performs a POST request with the given headers, body, options, and timeout. This is the complete form of the POST function and requires all five parameters to be specified.
+%% @doc Performs a POST request with the given headers, body, options, and timeout.
 -spec post(Url :: url(),
            Headers :: req_headers(),
            Body :: binary(),
@@ -96,7 +95,9 @@ post(Url, Headers, Body, Opts, Timeout) ->
     request(?METHOD_POST, Url, Headers, Body, Opts, Timeout).
 
 
-%% @doc Performs a request with the given method, url, headers, body, options and timeout.
+%% @doc Performs an HTTP request.
+%% This is the main entry point for making requests. It parses the URL,
+%% checks out a connection from the pool, sends the request, and handles the response.
 -spec request(Method :: method(),
               Url :: url(),
               Headers :: req_headers(),
@@ -127,7 +128,8 @@ request(Method, Url, Headers, Body, Opts, Timeout) ->
             {error, {uri, Reason}}
     end.
 
-
+%% @private
+%% @doc Handles the result of a request, checking the connection back in or cleaning it up.
 handle_request_result({ok, {Status, _, _}} = Result,
                       ReturnTo,
                       HostInfo,
@@ -142,7 +144,8 @@ handle_request_result(Err, _ReturnTo, _HostInfo, {Pid, _} = Conn, Method, Url) -
     cleanup(Conn),
     Err.
 
-
+%% @private
+%% @doc Executes the actual HTTP request using gun.
 -spec do_request(Conn :: conn(),
                  Method :: method(),
                  Path :: url(),
@@ -192,12 +195,14 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout) ->
                [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
 
-
+%% @private
+%% @doc Prepends a User-Agent header to the request headers.
 -spec headers(req_headers()) -> req_headers().
 headers(Headers) ->
     [{<<"User-Agent">>, ?USER_AGENT} | Headers].
 
-
+%% @private
+%% @doc Calculates the remaining timeout value.
 -spec next_timeout(Timeout :: timeout(), MicroSec :: integer()) -> timeout().
 next_timeout(infinity, _) ->
     infinity;
@@ -210,7 +215,8 @@ next_timeout(Timeout, MicroSec) ->
             0
     end.
 
-
+%% @private
+%% @doc Checks out a connection from the worker pool.
 -spec checkout(HostInfo :: hostinfo(), Timeout :: timeout()) ->
           {ok, {ReturnTo :: pid(), Conn :: conn()}} | {error, Reason :: term()}.
 checkout(HostInfo, Timeout) ->
@@ -240,26 +246,30 @@ checkout(HostInfo, Timeout) ->
             {error, {checkout, Err}}
     end.
 
-
+%% @private
+%% @doc Cancels a pending connection attempt.
 -spec cancel_await_up(ReturnTo :: pid(), Conn :: conn()) -> ok.
 cancel_await_up(ReturnTo, {Pid, MRef}) ->
     demonitor(MRef, [flush]),
     return_to(ReturnTo, Pid, {cancel_await_up, Pid}).
 
-
+%% @private
+%% @doc Returns a connection to the pool.
 -spec checkin(ReturnTo :: pid(), HostInfo :: hostinfo(), Conn :: conn()) -> ok.
 checkin(ReturnTo, HostInfo, {Pid, MRef}) ->
     demonitor(MRef, [flush]),
     return_to(ReturnTo, Pid, {checkin, HostInfo, Pid}).
 
-
+%% @private
+%% @doc Cleans up a connection by closing it.
 -spec cleanup(Conn :: conn()) -> ok.
 cleanup({Pid, MRef}) ->
     demonitor(MRef, [flush]),
     gun:close(Pid),
     ok.
 
-
+%% @private
+%% @doc Returns a message to the worker process.
 -spec return_to(ReturnTo :: pid(), Pid :: pid(), Msg :: term()) -> ok.
 return_to(ReturnTo, Pid, Msg) ->
     %gun:set_owner(Pid, ReturnTo),
@@ -268,17 +278,20 @@ return_to(ReturnTo, Pid, Msg) ->
 
 
 %% @doc Dumps the state of all honey_pool_worker processes.
+%% This is useful for debugging and monitoring.
 -spec dump_state() -> [map()].
 dump_state() ->
     [ gen_server:call(Proc, dump_state) || Proc <- wpool:get_workers(honey_pool_worker) ].
 
 
 %% @doc Summarizes the state of all honey_pool_worker processes.
+%% Provides a more concise overview of the connection pool status.
 -spec summarize_state() -> [map()].
 summarize_state() ->
     [ summarize_state(S) || S <- dump_state() ].
 
-
+%% @private
+%% @doc Summarizes the state of a single worker process.
 summarize_state(#{
                   await_up_conns := AC,
                   checked_in_conns := IC,
