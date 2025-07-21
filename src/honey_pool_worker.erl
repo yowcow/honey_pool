@@ -34,7 +34,7 @@
 -type requester() :: pid() | undefined.
 -type timer_ref() :: reference() | undefined.
 
-%% gen_server callbacks
+%% @doc Callback functions for the honey_pool_worker gen_server.
 
 %% @doc Initializes the worker.
 %% Creates an ETS table to store connection states and merges
