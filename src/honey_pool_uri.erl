@@ -5,7 +5,10 @@
 -include("honey_pool.hrl").
 
 
-%% @doc Parses a URL string into a uri record.
+%% @doc Parses a URL string into a `uri` record.
+%% It handles both binary and string inputs, separates the query string,
+%% and uses `uri_string:parse` for the main parsing logic.
+%% It determines the transport protocol (tcp/tls) and sets default ports if not specified.
 -spec parse(string() | binary()) -> {ok, uri()} | {error, term()}.
 parse(Uri) when is_binary(Uri) ->
     parse(binary_to_list(Uri));
