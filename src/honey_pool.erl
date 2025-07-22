@@ -128,6 +128,7 @@ request(Method, Url, Headers, Body, Opts, Timeout) ->
             {error, {uri, Reason}}
     end.
 
+
 %% @private
 %% @doc Handles the result of a request, checking the connection back in or cleaning it up.
 handle_request_result({ok, {Status, _, _}} = Result,
@@ -143,6 +144,7 @@ handle_request_result(Err, _ReturnTo, _HostInfo, {Pid, _} = Conn, Method, Url) -
     ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p -> ~p", [self(), Pid, Method, Url, Err]),
     cleanup(Conn),
     Err.
+
 
 %% @private
 %% @doc Executes the actual HTTP request using gun.
@@ -195,11 +197,13 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout) ->
                [self(), Pid, {Method, Path, ReqHeaders, Body, Opts}, Resp]),
     Resp.
 
+
 %% @private
 %% @doc Prepends a User-Agent header to the request headers.
 -spec headers(req_headers()) -> req_headers().
 headers(Headers) ->
     [{<<"User-Agent">>, ?USER_AGENT} | Headers].
+
 
 %% @private
 %% @doc Calculates the remaining timeout value.
@@ -214,6 +218,7 @@ next_timeout(Timeout, MicroSec) ->
         _ ->
             0
     end.
+
 
 %% @private
 %% @doc Checks out a connection from the worker pool.
@@ -246,12 +251,14 @@ checkout(HostInfo, Timeout) ->
             {error, {checkout, Err}}
     end.
 
+
 %% @private
 %% @doc Cancels a pending connection attempt.
 -spec cancel_await_up(ReturnTo :: pid(), Conn :: conn()) -> ok.
 cancel_await_up(ReturnTo, {Pid, MRef}) ->
     demonitor(MRef, [flush]),
     return_to(ReturnTo, Pid, {cancel_await_up, Pid}).
+
 
 %% @private
 %% @doc Returns a connection to the pool.
@@ -260,6 +267,7 @@ checkin(ReturnTo, HostInfo, {Pid, MRef}) ->
     demonitor(MRef, [flush]),
     return_to(ReturnTo, Pid, {checkin, HostInfo, Pid}).
 
+
 %% @private
 %% @doc Cleans up a connection by closing it.
 -spec cleanup(Conn :: conn()) -> ok.
@@ -267,6 +275,7 @@ cleanup({Pid, MRef}) ->
     demonitor(MRef, [flush]),
     gun:close(Pid),
     ok.
+
 
 %% @private
 %% @doc Returns a message to the worker process.
@@ -289,6 +298,7 @@ dump_state() ->
 -spec summarize_state() -> [map()].
 summarize_state() ->
     [ summarize_state(S) || S <- dump_state() ].
+
 
 %% @private
 %% @doc Summarizes the state of a single worker process.
