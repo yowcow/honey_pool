@@ -85,6 +85,12 @@ request_test_() ->
                            Actual =
                                honey_pool:post([Url, "/status/400/delay/50"], [], <<"req data">>, infinity),
                            ?assertMatch({ok, {400, _, no_data}}, Actual)
+                   end},
+                  {"get: await_up timeout",
+                   fun() ->
+                           HttpsUrl = string:replace(Url, "http", "https", leading),
+                           Actual = honey_pool:get(HttpsUrl, [], 10),
+                           ?assertMatch({error, {checkout, {timeout, await_up}}}, Actual)
                    end}],
              F = fun({Title, Test}) -> [{Title, Test}] end,
              lists:map(F, Cases)
