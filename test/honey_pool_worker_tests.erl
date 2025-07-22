@@ -119,7 +119,7 @@ checkout_checkin_test_() ->
                                     },
                                    State2)}]
                        end},
-                      {"sudden down",
+                      {"unexpected gun connection termination",
                        fun(Title) ->
                                %% checkout
                                {ok, {up, {_ReturnTo, Pid}}} = gen_server:call(
