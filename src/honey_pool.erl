@@ -291,7 +291,7 @@ cleanup({Pid, MRef}) ->
 %% @doc Returns a message to the worker process.
 -spec return_to(ReturnTo :: pid(), Pid :: pid(), Msg :: term()) -> ok.
 return_to(ReturnTo, Pid, Msg) ->
-
+    gun:flush(Pid),
     gen_server:cast(ReturnTo, Msg).
 
 
