@@ -4,7 +4,7 @@
 
 `honey_pool` is a robust Erlang connection pool for `gun`, designed to manage HTTP connections efficiently and reliably. It leverages a worker pool to handle multiple `gun` connection pools, providing a stable solution for applications with high volumes of concurrent HTTP requests.
 
-**Beta Quality**: This library is stable and suitable for testing in non-critical production environments. While the API is largely stable, minor changes may occur based on feedback.
+**Stable Release**: This library is stable and suitable for production environments. The API is stable and will maintain backward compatibility for future versions.
 
 ## Why Use honey_pool?
 
