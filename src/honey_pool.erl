@@ -20,8 +20,13 @@
 -type req_headers() :: gun:req_headers().
 -type resp() ::
         {ok, {status(), resp_headers(), binary() | no_data}} |
-        {timeout, term()} |
-        {error, Reason :: any()}.
+        {timeout, await_body | await | checkout | await_up} |
+        {error, {uri, term()} |
+                {checkout, term()} |
+                {await_body, term()} |
+                {await, term()} |
+                {pool_checkout, term()} |
+                {await_up, term()}}.
 -type resp_headers() :: [{binary(), binary()}].
 -type status() :: integer().
 -type url() :: string().
@@ -176,7 +181,12 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout) ->
                         {error, {await_body, Reason}}
                 end;
             {response, nofin, Status, RespHeaders} ->
-                %% stream is nofin but skip reading body
+                %% For non-200 nofin responses, we cancel the stream and do not read the body.
+                %% This is to prevent blocking on potentially large or infinite streams
+                %% when the status indicates an error or redirection.
+                ?LOG_DEBUG("(~p) (conn: ~p) cancelling stream ~p for non-200 nofin response "
+                           "(Status: ~p)",
+                           [self(), Pid, StreamRef, Status]),
                 gun:cancel(Pid, StreamRef),
                 {ok, {Status, RespHeaders, no_data}};
             {error,
@@ -281,7 +291,6 @@ cleanup({Pid, MRef}) ->
 %% @doc Returns a message to the worker process.
 -spec return_to(ReturnTo :: pid(), Pid :: pid(), Msg :: term()) -> ok.
 return_to(ReturnTo, Pid, Msg) ->
-    %gun:set_owner(Pid, ReturnTo),
     gun:flush(Pid),
     gen_server:cast(ReturnTo, Msg).
 

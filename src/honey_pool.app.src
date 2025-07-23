@@ -9,7 +9,11 @@
     gun,
     worker_pool]},
   {env, []},
-  {modules, []},
+  {modules, [honey_pool_app,
+             honey_pool_sup,
+             honey_pool_uri,
+             honey_pool_worker,
+             honey_pool]},
 
   {licenses, ["Apache 2.0"]},
   {links, []}]}.

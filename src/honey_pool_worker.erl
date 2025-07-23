@@ -253,7 +253,7 @@ conn_cancel_await_up(Pid, #state{tabid = TabId, await_up_timeout = AwaitUpTimeou
 -spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) ->
           {ok, term()}.
 conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) ->
-    ConnToKeep =
+    Conn =
         case ets:lookup(TabId, {pid, Pid}) of
             [] ->
                 #conn{
@@ -262,11 +262,12 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) -
                   monitor_ref = monitor(process, Pid),
                   timer_ref = idle_timer(Pid, IdleTimeout)
                  };
-            [{_, Conn}] ->
-                Conn#conn{state = checked_in, timer_ref = idle_timer(Pid, IdleTimeout)}
+            [{_, OldConn}] ->
+                cancel_idle_timer(OldConn#conn.timer_ref),
+                OldConn#conn{state = checked_in, timer_ref = idle_timer(Pid, IdleTimeout)}
         end,
     %% insert to the connection pid table
-    ets:insert(TabId, {{pid, Pid}, ConnToKeep}),
+    ets:insert(TabId, {{pid, Pid}, Conn}),
     PidsToPool =
         case ets:lookup(TabId, {pool, HostInfo}) of
             [] ->
@@ -292,6 +293,7 @@ conn_up(Pid, Protocol, #state{tabid = TabId} = State) ->
                     conn_checkin(Conn#conn.hostinfo, Pid, State);
                 Requester ->
                     %% notify requester and tag that conn is checked out
+                    cancel_idle_timer(Conn#conn.timer_ref),
                     Requester ! {gun_up, Pid, Protocol},
                     ets:insert(TabId,
                                {{pid, Pid}, Conn#conn{state = checked_out, requester = undefined}}),
