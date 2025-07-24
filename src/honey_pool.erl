@@ -20,8 +20,8 @@
 -type req_headers() :: gun:req_headers().
 -type resp() ::
         {ok, {status(), resp_headers(), binary() | no_data}} |
-        {timeout, await_body | await | checkout | await_up} |
-        {error, {uri, term()} |
+        {error, {timeout, term()} |
+                {uri, term()} |
                 {checkout, term()} |
                 {await_body, term()} |
                 {await, term()} |
