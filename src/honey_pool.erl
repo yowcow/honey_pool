@@ -24,11 +24,10 @@
          {await, term()} |
          {await_body, term()} |
          {checkout,
+          {limit, max_conns | max_pending_conns} |
           {timeout, term()} |
           {await_up, term()} |
-          {pool_checkout,
-           {limit, max_conns | max_pending_conns} |
-           term()} |
+          {pool_checkout, term()} |
           {checkout, term()}} |
          {uri, term()} |
          {timeout, term()}}.
@@ -259,6 +258,9 @@ checkout(HostInfo, Timeout) ->
             end;
         {ok, {up, {ReturnTo, Pid}}} ->
             {ok, {ReturnTo, {Pid, monitor(process, Pid)}}};
+        {error, {limit, _} = Reason} ->
+            %% Unwrap limit errors for direct pattern matching
+            {error, Reason};
         {error, Reason} ->
             {error, {pool_checkout, Reason}}
     catch
