@@ -36,6 +36,9 @@ init([]) ->
                 },
     GunOpts = application:get_env(honey_pool, gun_opts, #{}),
     IdleTimeout = application:get_env(honey_pool, idle_timeout, infinity),
+    AwaitUpTimeout = application:get_env(honey_pool, await_up_timeout, 5000),
+    MaxConns = application:get_env(honey_pool, max_conns, infinity),
+    MaxPendingConns = application:get_env(honey_pool, max_pending_conns, infinity),
     WpoolUserConfig = application:get_env(honey_pool, wpool, []),
     WpoolDefaultConfig =
         #{
@@ -44,7 +47,10 @@ init([]) ->
           worker =>
               {honey_pool_worker,
                [{gun_opts, GunOpts},
-                {idle_timeout, IdleTimeout}]}
+                {idle_timeout, IdleTimeout},
+                {await_up_timeout, AwaitUpTimeout},
+                {max_conns, MaxConns},
+                {max_pending_conns, MaxPendingConns}]}
          },
     WpoolConfig =
         maps:to_list(

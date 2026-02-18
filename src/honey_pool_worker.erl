@@ -48,7 +48,9 @@ init(Args) ->
        tabid = ets:new(?ETS_TABLE, [set]),
        gun_opts = maps:merge(?DEFAULT_OPTS, maps:get(gun_opts, Opts, #{})),
        idle_timeout = maps:get(idle_timeout, Opts, infinity),
-       await_up_timeout = maps:get(await_up_timeout, Opts, 5000)
+       await_up_timeout = maps:get(await_up_timeout, Opts, 5000),
+       max_conns = maps:get(max_conns, Opts, infinity),
+       max_pending_conns = maps:get(max_pending_conns, Opts, infinity)
       }}.
 
 
@@ -76,9 +78,9 @@ terminate(Reason, State) ->
 -spec handle_call(Req :: term(), From :: {pid(), term()}, State :: state()) ->
           {reply, term(), state()}.
 handle_call({checkout, HostInfo} = Req, {Requester, _}, State) ->
-    Result = conn_checkout(HostInfo, Requester, State),
+    {Result, NewState} = conn_checkout(HostInfo, Requester, State),
     ?LOG_DEBUG("(~p) handle_call (~p) -> ~p", [self(), Req, Result]),
-    {reply, Result, State};
+    {reply, Result, NewState};
 handle_call(dump_state, _From, State) ->
     {reply, dump_state(State), State};
 handle_call(Req, From, State) ->
@@ -91,13 +93,13 @@ handle_call(Req, From, State) ->
 %% - `{cancel_await_up, Pid}`: Cancels a pending connection attempt.
 -spec handle_cast(Req :: term(), State :: state()) -> {noreply, state()}.
 handle_cast({checkin, HostInfo, Pid} = Req, State) ->
-    Result = conn_checkin(HostInfo, Pid, State),
+    {Result, NewState} = conn_checkin(HostInfo, Pid, State),
     ?LOG_DEBUG("(~p) handle_cast (~p) -> ~p", [self(), Req, Result]),
-    {noreply, State};
+    {noreply, NewState};
 handle_cast({cancel_await_up, Pid} = Req, State) ->
-    Result = conn_cancel_await_up(Pid, State),
+    {Result, NewState} = conn_cancel_await_up(Pid, State),
     ?LOG_DEBUG("(~p) handle_cast (~p) -> ~p", [self(), Req, Result]),
-    {noreply, State};
+    {noreply, NewState};
 handle_cast(Req, State) ->
     ?LOG_WARNING("(~p) unhandled cast (~p, ~p)", [self(), Req, State]),
     {noreply, State}.
@@ -110,23 +112,23 @@ handle_cast(Req, State) ->
 %% - `{'DOWN', MRef, ...}`: Handles a process down event.
 -spec handle_info(Req :: term(), State :: state()) -> {noreply, state()}.
 handle_info({idle_timeout, Pid} = Req, State) ->
-    Result = conn_down(Pid, State),
+    {Result, NewState} = conn_down(Pid, State),
     gun:close(Pid),
     ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
-    {noreply, State};
+    {noreply, NewState};
 handle_info({gun_up, Pid, Protocol} = Req, State) ->
-    Result = conn_up(Pid, Protocol, State),
+    {Result, NewState} = conn_up(Pid, Protocol, State),
     ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
-    {noreply, State};
+    {noreply, NewState};
 handle_info({gun_down, Pid, _Protocol, _Reason, _} = Req, State) ->
-    Result = conn_down(Pid, State),
+    {Result, NewState} = conn_down(Pid, State),
     ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
-    {noreply, State};
+    {noreply, NewState};
 handle_info({'DOWN', MRef, _, Pid, _Reason} = Req, State) ->
     demonitor(MRef, [flush]),
-    Result = conn_down(Pid, State),
+    {Result, NewState} = conn_down(Pid, State),
     ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
-    {noreply, State};
+    {noreply, NewState};
 handle_info(Req, State) ->
     ?LOG_WARNING("(~p) unhandled info (~p, ~p)", [self(), Req, State]),
     {noreply, State}.
@@ -159,29 +161,35 @@ cancel_idle_timer(TRef) ->
 %% @private
 %% @doc Checks out a connection from the pool or opens a new one.
 -spec conn_checkout(HostInfo :: hostinfo(), Requester :: pid(), State :: state()) ->
-          {ok, {up | await_up, {ReturnTo :: pid(), Pid :: pid()}}} |
-          {error, Reason :: term()}.
+          {{ok, {up | await_up, {ReturnTo :: pid(), Pid :: pid()}}} |
+           {error, Reason :: term()},
+           state()}.
 conn_checkout(HostInfo, Requester, #state{tabid = TabId} = State) ->
-    Result =
-        case ets:lookup(TabId, {pool, HostInfo}) of
-            [] ->
-                conn_open(HostInfo, Requester, State);
-            [{_, []}] ->
-                conn_open(HostInfo, Requester, State);
-            [{_, Pids}] ->
-                case checkout_from_pool(HostInfo, Requester, Pids, State) of
-                    no_available_worker ->
-                        conn_open(HostInfo, Requester, State);
-                    Other ->
-                        Other
-                end
-        end,
-    case Result of
-        {ok, {Status, ConnPid}} ->
-            %%gun:set_owner(ConnPid, Requester),
-            {ok, {Status, {self(), ConnPid}}};
-        _ ->
-            Result
+    case ets:lookup(TabId, {pool, HostInfo}) of
+        [] ->
+            conn_open_with_returnto(HostInfo, Requester, State);
+        [{_, []}] ->
+            conn_open_with_returnto(HostInfo, Requester, State);
+        [{_, Pids}] ->
+            case checkout_from_pool(HostInfo, Requester, Pids, State) of
+                no_available_worker ->
+                    conn_open_with_returnto(HostInfo, Requester, State);
+                {ok, {Status, Pid}} ->
+                    {{ok, {Status, {self(), Pid}}}, State}
+            end
+    end.
+
+
+%% @private
+%% @doc Opens a new connection and wraps the result with ReturnTo.
+-spec conn_open_with_returnto(hostinfo(), pid(), state()) ->
+          {{ok, {await_up, {pid(), pid()}}} | {error, term()}, state()}.
+conn_open_with_returnto(HostInfo, Requester, State) ->
+    case conn_open(HostInfo, Requester, State) of
+        {{ok, {Status, Pid}}, NewState} ->
+            {{ok, {Status, {self(), Pid}}}, NewState};
+        {Error, NewState} ->
+            {Error, NewState}
     end.
 
 
@@ -207,10 +215,21 @@ checkout_from_pool(HostInfo, Requester, [Pid | Pids], #state{tabid = TabId} = St
 %% @private
 %% @doc Opens a new gun connection.
 -spec conn_open(HostInfo :: hostinfo(), Requester :: pid(), State :: state()) ->
-          {ok, {await_up, Pid :: pid()}} | {error, Reason :: term()}.
+          {{ok, {await_up, Pid :: pid()}} | {error, Reason :: term()}, state()}.
+conn_open(_HostInfo, _Requester, #state{max_conns = Max, cur_conns = Cur} = State)
+  when Cur >= Max ->
+    {{error, {limit, max_conns}}, State};
+conn_open(_HostInfo, _Requester, #state{max_pending_conns = Max, cur_pending_conns = Cur} = State)
+  when Cur >= Max ->
+    {{error, {limit, max_pending_conns}}, State};
 conn_open({Host, Port, Transport},
           Requester,
-          #state{gun_opts = GunOpts, tabid = TabId}) ->
+          #state{
+             gun_opts = GunOpts,
+             tabid = TabId,
+             cur_conns = CurConns,
+             cur_pending_conns = CurPending
+            } = State) ->
     GunOptsWithTransport = GunOpts#{transport => Transport},
     HostInfo = {Host, Port, Transport},
     case gun:open(Host, Port, GunOptsWithTransport) of
@@ -223,18 +242,26 @@ conn_open({Host, Port, Transport},
                           requester = Requester,
                           monitor_ref = monitor(process, Pid)
                          }}),
-            {ok, {await_up, Pid}};
+            {{ok, {await_up, Pid}},
+             State#state{
+               cur_conns = CurConns + 1,
+               cur_pending_conns = CurPending + 1
+              }};
         {error, Reason} ->
-            {error, {gun_open, Reason}}
+            {{error, {gun_open, Reason}}, State}
     end.
 
 
 %% @private
 %% @doc Cancels a pending connection that is waiting for `gun_up`.
--spec conn_cancel_await_up(Pid :: pid(), State :: state()) -> ok.
-conn_cancel_await_up(Pid, #state{tabid = TabId, await_up_timeout = AwaitUpTimeout}) ->
+-spec conn_cancel_await_up(Pid :: pid(), State :: state()) -> {ok, state()}.
+conn_cancel_await_up(Pid,
+                     #state{
+                        tabid = TabId,
+                        await_up_timeout = AwaitUpTimeout
+                       } = State) ->
     case ets:lookup(TabId, {pid, Pid}) of
-        [{_, Conn = #conn{timer_ref = TRef}}] ->
+        [{_, Conn = #conn{timer_ref = TRef, state = await_up}}] ->
             cancel_idle_timer(TRef),
             ets:insert(TabId,
                        {{pid, Pid},
@@ -242,17 +269,20 @@ conn_cancel_await_up(Pid, #state{tabid = TabId, await_up_timeout = AwaitUpTimeou
                           requester = undefined,
                           timer_ref = idle_timer(Pid, AwaitUpTimeout)
                          }}),
-            ok;
+            %% We don't decrement cur_pending_conns here because the connection is still
+            %% in 'await_up' state in the ETS table. It will be decremented when gun_up
+            %% or gun_down arrives.
+            {ok, State};
         _ ->
-            ok
+            {ok, State}
     end.
 
 
 %% @private
 %% @doc Checks a connection back into the pool.
 -spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) ->
-          {ok, term()}.
-conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) ->
+          {{ok, term()}, state()}.
+conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout} = State) ->
     Conn =
         case ets:lookup(TabId, {pid, Pid}) of
             [] ->
@@ -277,27 +307,28 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout}) -
         end,
     %% insert to the host connection pool
     ets:insert(TabId, {{pool, HostInfo}, PidsToPool}),
-    {ok, {HostInfo, Pid}}.
+    {{ok, {HostInfo, Pid}}, State}.
 
 
 %% @private
 %% @doc Handles the `gun_up` message, indicating a connection is ready.
--spec conn_up(pid(), tcp | tls, state()) -> {ok, term()}.
-conn_up(Pid, Protocol, #state{tabid = TabId} = State) ->
+-spec conn_up(pid(), tcp | tls, state()) -> {{ok, term()}, state()}.
+conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending} = State) ->
+    State1 = State#state{cur_pending_conns = CurPending - 1},
     case ets:lookup(TabId, {pid, Pid}) of
         [{_, Conn}] ->
             case Conn#conn.requester of
                 undefined ->
                     %% requester has canceled -> just keep pid in the pool
                     cancel_idle_timer(Conn#conn.timer_ref),
-                    conn_checkin(Conn#conn.hostinfo, Pid, State);
+                    conn_checkin(Conn#conn.hostinfo, Pid, State1);
                 Requester ->
                     %% notify requester and tag that conn is checked out
                     cancel_idle_timer(Conn#conn.timer_ref),
                     Requester ! {gun_up, Pid, Protocol},
                     ets:insert(TabId,
                                {{pid, Pid}, Conn#conn{state = checked_out, requester = undefined}}),
-                    {ok, {Conn#conn.hostinfo, Pid}}
+                    {{ok, {Conn#conn.hostinfo, Pid}}, State1}
             end;
         _ ->
             %% arrived out of the blue -> just keep pid in the pool
@@ -308,14 +339,14 @@ conn_up(Pid, Protocol, #state{tabid = TabId} = State) ->
              } =
                 gun:info(Pid),
             HostInfo = {Host, Port, Transport},
-            conn_checkin(HostInfo, Pid, State)
+            conn_checkin(HostInfo, Pid, State1)
     end.
 
 
 %% @private
 %% @doc Handles the `gun_down` message, indicating a connection has been lost.
--spec conn_down(pid(), state()) -> {ok, term()}.
-conn_down(Pid, #state{tabid = TabId}) ->
+-spec conn_down(pid(), state()) -> {{ok, term()}, state()}.
+conn_down(Pid, #state{tabid = TabId, cur_conns = CurConns, cur_pending_conns = CurPending} = State) ->
     case ets:take(TabId, {pid, Pid}) of
         [{_, Conn}] ->
             HostInfo = Conn#conn.hostinfo,
@@ -327,24 +358,41 @@ conn_down(Pid, #state{tabid = TabId}) ->
                 _ ->
                     ok
             end,
-            {ok, {HostInfo, Pid}};
+            NewState =
+                case Conn#conn.state of
+                    await_up ->
+                        State#state{cur_conns = CurConns - 1, cur_pending_conns = CurPending - 1};
+                    _ ->
+                        State#state{cur_conns = CurConns - 1}
+                end,
+            {{ok, {HostInfo, Pid}}, NewState};
         _ ->
             %% Some servers close connections on the fly, and gun_down is fired before the conn checks-in.
             %% In that case, we just forget until checkin, and the monitor will detect noproc.
-            {ok, nonexisting}
+            {{ok, nonexisting}, State}
     end.
 
 
 %% @private
 %% @doc Dumps the current state of the ETS table for debugging.
 -spec dump_state(state()) -> map().
-dump_state(#state{tabid = TabId}) ->
+dump_state(#state{
+              tabid = TabId,
+              cur_conns = CurConns,
+              cur_pending_conns = CurPending,
+              max_conns = MaxConns,
+              max_pending_conns = MaxPending
+             }) ->
     ets:foldl(fun dump_state/2,
               #{
                 await_up_conns => #{},
                 checked_in_conns => #{},
                 checked_out_conns => #{},
-                pool_conns => #{}
+                pool_conns => #{},
+                cur_conns => CurConns,
+                cur_pending_conns => CurPending,
+                max_conns => MaxConns,
+                max_pending_conns => MaxPending
                },
               TabId).
 
