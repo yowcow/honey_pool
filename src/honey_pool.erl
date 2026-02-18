@@ -25,7 +25,10 @@
          {await_body, term()} |
          {checkout,
           {limit, max_conns | max_pending_conns} |
-          {timeout, term()} | {await_up, term()} | {pool_checkout, term()} | {checkout, term()}} |
+          {timeout, term()} |
+          {await_up, term()} |
+          {pool_checkout, term()} |
+          {checkout, term()}} |
          {uri, term()} |
          {timeout, term()}}.
 -type resp_headers() :: [{binary(), binary()}].

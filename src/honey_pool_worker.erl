@@ -225,11 +225,11 @@ conn_open(_HostInfo, _Requester, #state{max_pending_conns = Max, cur_pending_con
 conn_open({Host, Port, Transport},
           Requester,
           #state{
-             gun_opts = GunOpts,
-             tabid = TabId,
-             cur_conns = CurConns,
-             cur_pending_conns = CurPending
-            } = State) ->
+            gun_opts = GunOpts,
+            tabid = TabId,
+            cur_conns = CurConns,
+            cur_pending_conns = CurPending
+           } = State) ->
     GunOptsWithTransport = GunOpts#{transport => Transport},
     HostInfo = {Host, Port, Transport},
     case gun:open(Host, Port, GunOptsWithTransport) of
@@ -257,9 +257,9 @@ conn_open({Host, Port, Transport},
 -spec conn_cancel_await_up(Pid :: pid(), State :: state()) -> {ok, state()}.
 conn_cancel_await_up(Pid,
                      #state{
-                        tabid = TabId,
-                        await_up_timeout = AwaitUpTimeout
-                       } = State) ->
+                       tabid = TabId,
+                       await_up_timeout = AwaitUpTimeout
+                      } = State) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [{_, Conn = #conn{timer_ref = TRef, state = await_up}}] ->
             cancel_idle_timer(TRef),
@@ -336,9 +336,9 @@ conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending} = S
         [{_, Conn}] ->
             %% Only decrement cur_pending_conns if connection is in await_up state
             State1 = case Conn#conn.state of
-                await_up -> State#state{cur_pending_conns = CurPending - 1};
-                _ -> State
-            end,
+                         await_up -> State#state{cur_pending_conns = CurPending - 1};
+                         _ -> State
+                     end,
             case Conn#conn.requester of
                 undefined ->
                     %% requester has canceled -> just keep pid in the pool
@@ -400,12 +400,12 @@ conn_down(Pid, #state{tabid = TabId, cur_conns = CurConns, cur_pending_conns = C
 %% @doc Dumps the current state of the ETS table for debugging.
 -spec dump_state(state()) -> map().
 dump_state(#state{
-              tabid = TabId,
-              cur_conns = CurConns,
-              cur_pending_conns = CurPending,
-              max_conns = MaxConns,
-              max_pending_conns = MaxPending
-             }) ->
+             tabid = TabId,
+             cur_conns = CurConns,
+             cur_pending_conns = CurPending,
+             max_conns = MaxConns,
+             max_pending_conns = MaxPending
+            }) ->
     ets:foldl(fun dump_state/2,
               #{
                 await_up_conns => #{},

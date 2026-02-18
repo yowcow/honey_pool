@@ -14,10 +14,10 @@
           gun_opts = #{} :: gun_opts(),  %% Default options for gun connections.
           idle_timeout = infinity :: timeout(),  %% Timeout for idle connections.
           await_up_timeout = 5000 :: timeout(),  %% Timeout for waiting for a connection to be established.
-          max_conns = infinity :: pos_integer() | infinity, %% Maximum number of total connections.
-          max_pending_conns = infinity :: pos_integer() | infinity, %% Maximum number of pending (await_up) connections.
-          cur_conns = 0 :: non_neg_integer(), %% Current number of total connections.
-          cur_pending_conns = 0 :: non_neg_integer() %% Current number of pending connections.
+          max_conns = infinity :: pos_integer() | infinity,  %% Maximum number of total connections.
+          max_pending_conns = infinity :: pos_integer() | infinity,  %% Maximum number of pending (await_up) connections.
+          cur_conns = 0 :: non_neg_integer(),  %% Current number of total connections.
+          cur_pending_conns = 0 :: non_neg_integer()  %% Current number of pending connections.
          }).
 
 %% @doc Gun options for connection settings.

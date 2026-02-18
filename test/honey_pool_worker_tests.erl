@@ -108,33 +108,33 @@ checkout_checkin_test_() ->
                                honey_pool:return_to(ReturnTo, Pid, {checkin, HostInfo, Pid}),
                                State2 = gen_server:call(?MODULE, dump_state),
                                %% tests
-                                                               [{Title ++ ": dump_state 1",
-                                                                ?_assertEqual(
-                                                                  #{
-                                                                    await_up_conns => #{},
-                                                                    checked_in_conns => #{},
-                                                                    checked_out_conns => #{Pid => HostInfo},
-                                                                    pool_conns => #{},
-                                                                    cur_conns => 1,
-                                                                    cur_pending_conns => 0,
-                                                                    max_conns => infinity,
-                                                                    max_pending_conns => infinity
-                                                                   },
-                                                                  State1)},
-                                                               {Title ++ ": dump_state 2",
-                                                                ?_assertEqual(
-                                                                  #{
-                                                                    await_up_conns => #{},
-                                                                    checked_in_conns => #{Pid => HostInfo},
-                                                                    checked_out_conns => #{},
-                                                                    pool_conns => #{HostInfo => [Pid]},
-                                                                    cur_conns => 1,
-                                                                    cur_pending_conns => 0,
-                                                                    max_conns => infinity,
-                                                                    max_pending_conns => infinity
-                                                                   },
-                                                                  State2)}]
-                               
+                               [{Title ++ ": dump_state 1",
+                                 ?_assertEqual(
+                                   #{
+                                     await_up_conns => #{},
+                                     checked_in_conns => #{},
+                                     checked_out_conns => #{Pid => HostInfo},
+                                     pool_conns => #{},
+                                     cur_conns => 1,
+                                     cur_pending_conns => 0,
+                                     max_conns => infinity,
+                                     max_pending_conns => infinity
+                                    },
+                                   State1)},
+                                {Title ++ ": dump_state 2",
+                                 ?_assertEqual(
+                                   #{
+                                     await_up_conns => #{},
+                                     checked_in_conns => #{Pid => HostInfo},
+                                     checked_out_conns => #{},
+                                     pool_conns => #{HostInfo => [Pid]},
+                                     cur_conns => 1,
+                                     cur_pending_conns => 0,
+                                     max_conns => infinity,
+                                     max_pending_conns => infinity
+                                    },
+                                   State2)}]
+
                        end},
                       {"unexpected gun connection termination",
                        fun(Title) ->
