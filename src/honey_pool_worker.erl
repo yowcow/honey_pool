@@ -287,7 +287,12 @@ add_to_pool(TabId, HostInfo, Pid) ->
             [] ->
                 [Pid];
             [{_, Pids}] ->
-                [Pid | Pids]
+                case lists:member(Pid, Pids) of
+                    true ->
+                        Pids;
+                    false ->
+                        [Pid | Pids]
+                end
         end,
     ets:insert(TabId, {{pool, HostInfo}, PidsToPool}),
     ok.
