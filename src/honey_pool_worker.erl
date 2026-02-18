@@ -279,25 +279,9 @@ conn_cancel_await_up(Pid,
 
 
 %% @private
-%% @doc Checks a connection back into the pool.
--spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) ->
-          {{ok, term()}, state()}.
-conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout} = State) ->
-    Conn =
-        case ets:lookup(TabId, {pid, Pid}) of
-            [] ->
-                #conn{
-                  hostinfo = HostInfo,
-                  state = checked_in,
-                  monitor_ref = monitor(process, Pid),
-                  timer_ref = idle_timer(Pid, IdleTimeout)
-                 };
-            [{_, OldConn}] ->
-                cancel_idle_timer(OldConn#conn.timer_ref),
-                OldConn#conn{state = checked_in, timer_ref = idle_timer(Pid, IdleTimeout)}
-        end,
-    %% insert to the connection pid table
-    ets:insert(TabId, {{pid, Pid}, Conn}),
+%% @doc Adds a PID to the pool for the given HostInfo.
+-spec add_to_pool(TabId :: ets:tid(), HostInfo :: hostinfo(), Pid :: pid()) -> ok.
+add_to_pool(TabId, HostInfo, Pid) ->
     PidsToPool =
         case ets:lookup(TabId, {pool, HostInfo}) of
             [] ->
@@ -305,9 +289,43 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout} = 
             [{_, Pids}] ->
                 [Pid | Pids]
         end,
-    %% insert to the host connection pool
     ets:insert(TabId, {{pool, HostInfo}, PidsToPool}),
-    {{ok, {HostInfo, Pid}}, State}.
+    ok.
+
+
+%% @private
+%% @doc Checks a connection back into the pool.
+-spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) ->
+          {{ok, term()}, state()}.
+conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout} = State) ->
+    case ets:lookup(TabId, {pid, Pid}) of
+        [] ->
+            %% Unknown PID: verify it's alive before inserting.
+            %% This prevents double-decrementing cur_conns if the process died and was
+            %% cleaned up by conn_down/2 before this late checkin arrived.
+            case erlang:is_process_alive(Pid) of
+                true ->
+                    Conn =
+                        #conn{
+                          hostinfo = HostInfo,
+                          state = checked_in,
+                          monitor_ref = monitor(process, Pid),
+                          timer_ref = idle_timer(Pid, IdleTimeout)
+                         },
+                    ets:insert(TabId, {{pid, Pid}, Conn}),
+                    add_to_pool(TabId, HostInfo, Pid),
+                    {{ok, {HostInfo, Pid}}, State};
+                false ->
+                    %% Process is already dead, ignore this checkin
+                    {{ok, {dead_process, Pid}}, State}
+            end;
+        [{_, OldConn}] ->
+            cancel_idle_timer(OldConn#conn.timer_ref),
+            Conn = OldConn#conn{state = checked_in, timer_ref = idle_timer(Pid, IdleTimeout)},
+            ets:insert(TabId, {{pid, Pid}, Conn}),
+            add_to_pool(TabId, HostInfo, Pid),
+            {{ok, {HostInfo, Pid}}, State}
+    end.
 
 
 %% @private
