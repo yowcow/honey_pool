@@ -314,9 +314,13 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout} = 
 %% @doc Handles the `gun_up` message, indicating a connection is ready.
 -spec conn_up(pid(), tcp | tls, state()) -> {{ok, term()}, state()}.
 conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending} = State) ->
-    State1 = State#state{cur_pending_conns = CurPending - 1},
     case ets:lookup(TabId, {pid, Pid}) of
         [{_, Conn}] ->
+            %% Only decrement cur_pending_conns if connection is in await_up state
+            State1 = case Conn#conn.state of
+                await_up -> State#state{cur_pending_conns = CurPending - 1};
+                _ -> State
+            end,
             case Conn#conn.requester of
                 undefined ->
                     %% requester has canceled -> just keep pid in the pool
@@ -332,6 +336,7 @@ conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending} = S
             end;
         _ ->
             %% arrived out of the blue -> just keep pid in the pool
+            %% Don't decrement cur_pending_conns since this connection was never tracked as pending
             #{
               origin_host := Host,
               origin_port := Port,
@@ -339,7 +344,7 @@ conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending} = S
              } =
                 gun:info(Pid),
             HostInfo = {Host, Port, Transport},
-            conn_checkin(HostInfo, Pid, State1)
+            conn_checkin(HostInfo, Pid, State)
     end.
 
 
