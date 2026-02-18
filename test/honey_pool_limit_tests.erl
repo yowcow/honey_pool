@@ -2,6 +2,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(WORKER, honey_pool_worker).
+%% TEST-NET-1 address (RFC 5737) - reserved for documentation, never routes anywhere
+-define(BLACKHOLED_TEST_ADDR, "192.0.2.1").
 
 
 limit_test_() ->
@@ -40,12 +42,12 @@ limit_test_() ->
       {"max_pending_conns limit test",
        fun() ->
                %% Start worker with max_pending_conns = 1 and long connect_timeout
-               %% Use a blackholed address (TEST-NET-1) that never responds to ensure
+               %% Use a blackholed address that never responds to ensure
                %% connections stay in await_up state long enough to test the limit
                {ok, Pid} = gen_server:start_link(honey_pool_worker,
                                                   [{max_pending_conns, 1},
                                                    {gun_opts, #{connect_timeout => 30000}}], []),
-               HostInfo = {"192.0.2.1", 1234, tcp},
+               HostInfo = {?BLACKHOLED_TEST_ADDR, 1234, tcp},
 
                %% 1st checkout (becomes pending and stays pending)
                {ok, {await_up, {Pid, C1}}} = gen_server:call(Pid, {checkout, HostInfo}),
