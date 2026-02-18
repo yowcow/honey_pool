@@ -35,9 +35,9 @@ limit_test_() ->
     {setup,
      fun() ->
              Config = boot_server(),
-             {ok, Apps} = application:ensure_all_started(worker_pool),
+             {ok, WorkerPoolApps} = application:ensure_all_started(worker_pool),
              {ok, GunApps} = application:ensure_all_started(gun),
-             [{apps, lists:flatten(Apps, lists:flatten(GunApps, proplists:get_value(apps, Config)))} | Config]
+             [{apps, lists:flatten([WorkerPoolApps, GunApps, proplists:get_value(apps, Config)])} | Config]
      end,
      fun(Config) ->
              cowboy:stop_listener(?LISTENER),
