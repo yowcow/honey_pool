@@ -353,16 +353,10 @@ conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending} = S
                     {{ok, {Conn#conn.hostinfo, Pid}}, State1}
             end;
         _ ->
-            %% arrived out of the blue -> just keep pid in the pool
-            %% Don't decrement cur_pending_conns since this connection was never tracked as pending
-            #{
-              origin_host := Host,
-              origin_port := Port,
-              transport := Transport
-             } =
-                gun:info(Pid),
-            HostInfo = {Host, Port, Transport},
-            conn_checkin(HostInfo, Pid, State)
+            %% arrived out of the blue -> close it instead of accepting into pool
+            %% This prevents tracking connections we didn't initiate
+            gun:close(Pid),
+            {{ok, closed_unexpected}, State}
     end.
 
 
