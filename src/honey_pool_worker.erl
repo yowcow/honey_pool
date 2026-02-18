@@ -279,6 +279,21 @@ conn_cancel_await_up(Pid,
 
 
 %% @private
+%% @doc Adds a PID to the pool for the given HostInfo.
+-spec add_to_pool(TabId :: ets:tid(), HostInfo :: hostinfo(), Pid :: pid()) -> ok.
+add_to_pool(TabId, HostInfo, Pid) ->
+    PidsToPool =
+        case ets:lookup(TabId, {pool, HostInfo}) of
+            [] ->
+                [Pid];
+            [{_, Pids}] ->
+                [Pid | Pids]
+        end,
+    ets:insert(TabId, {{pool, HostInfo}, PidsToPool}),
+    ok.
+
+
+%% @private
 %% @doc Checks a connection back into the pool.
 -spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) ->
           {{ok, term()}, state()}.
@@ -298,14 +313,7 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout} = 
                           timer_ref = idle_timer(Pid, IdleTimeout)
                          },
                     ets:insert(TabId, {{pid, Pid}, Conn}),
-                    PidsToPool =
-                        case ets:lookup(TabId, {pool, HostInfo}) of
-                            [] ->
-                                [Pid];
-                            [{_, Pids}] ->
-                                [Pid | Pids]
-                        end,
-                    ets:insert(TabId, {{pool, HostInfo}, PidsToPool}),
+                    add_to_pool(TabId, HostInfo, Pid),
                     {{ok, {HostInfo, Pid}}, State};
                 false ->
                     %% Process is already dead, ignore this checkin
@@ -315,14 +323,7 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout} = 
             cancel_idle_timer(OldConn#conn.timer_ref),
             Conn = OldConn#conn{state = checked_in, timer_ref = idle_timer(Pid, IdleTimeout)},
             ets:insert(TabId, {{pid, Pid}, Conn}),
-            PidsToPool =
-                case ets:lookup(TabId, {pool, HostInfo}) of
-                    [] ->
-                        [Pid];
-                    [{_, Pids}] ->
-                        [Pid | Pids]
-                end,
-            ets:insert(TabId, {{pool, HostInfo}, PidsToPool}),
+            add_to_pool(TabId, HostInfo, Pid),
             {{ok, {HostInfo, Pid}}, State}
     end.
 
