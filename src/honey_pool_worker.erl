@@ -297,7 +297,7 @@ add_to_pool(TabId, HostInfo, Pid) ->
 %% @doc Checks a connection back into the pool.
 -spec conn_checkin(HostInfo :: hostinfo(), Pid :: pid(), State :: state()) ->
           {{ok, term()}, state()}.
-conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout} = State) ->
+conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout, cur_conns = CurConns} = State) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [] ->
             %% Unknown PID: verify it's alive before inserting.
@@ -314,7 +314,7 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout} = 
                          },
                     ets:insert(TabId, {{pid, Pid}, Conn}),
                     add_to_pool(TabId, HostInfo, Pid),
-                    {{ok, {HostInfo, Pid}}, State};
+                    {{ok, {HostInfo, Pid}}, State#state{cur_conns = CurConns + 1}};
                 false ->
                     %% Process is already dead, ignore this checkin
                     {{ok, {dead_process, Pid}}, State}
