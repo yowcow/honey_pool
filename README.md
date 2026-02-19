@@ -73,6 +73,8 @@ Configure `honey_pool` in your `sys.config` file:
               %% honey_pool configurations
               {idle_timeout, 60000},    %% Close connection after 60 seconds of idle time.
               {await_up_timeout, 5000}, %% Max. time (in milliseconds) to wait for a newly opened connection to become available.
+              {max_conns, 100},          %% Max number of connections per worker.
+              {max_pending_conns, 10},   %% Max number of pending connections per worker.
 
               %% worker_pool configurations (see worker_pool documentation for details)
               {wpool, [
