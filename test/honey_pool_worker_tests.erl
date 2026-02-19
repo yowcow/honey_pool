@@ -77,7 +77,11 @@ checkout_checkin_test_() ->
                                      await_up_conns => #{},
                                      checked_in_conns => #{},
                                      checked_out_conns => #{Pid => HostInfo},
-                                     pool_conns => #{}
+                                     pool_conns => #{},
+                                     cur_conns => 1,
+                                     cur_pending_conns => 0,
+                                     max_conns => infinity,
+                                     max_pending_conns => infinity
                                     },
                                    State1)},
                                 {Title ++ ": dump_state 2",
@@ -86,7 +90,11 @@ checkout_checkin_test_() ->
                                      await_up_conns => #{},
                                      checked_in_conns => #{Pid => HostInfo},
                                      checked_out_conns => #{},
-                                     pool_conns => #{HostInfo => [Pid]}
+                                     pool_conns => #{HostInfo => [Pid]},
+                                     cur_conns => 1,
+                                     cur_pending_conns => 0,
+                                     max_conns => infinity,
+                                     max_pending_conns => infinity
                                     },
                                    State2)}]
                        end},
@@ -106,7 +114,11 @@ checkout_checkin_test_() ->
                                      await_up_conns => #{},
                                      checked_in_conns => #{},
                                      checked_out_conns => #{Pid => HostInfo},
-                                     pool_conns => #{}
+                                     pool_conns => #{},
+                                     cur_conns => 1,
+                                     cur_pending_conns => 0,
+                                     max_conns => infinity,
+                                     max_pending_conns => infinity
                                     },
                                    State1)},
                                 {Title ++ ": dump_state 2",
@@ -115,9 +127,14 @@ checkout_checkin_test_() ->
                                      await_up_conns => #{},
                                      checked_in_conns => #{Pid => HostInfo},
                                      checked_out_conns => #{},
-                                     pool_conns => #{HostInfo => [Pid]}
+                                     pool_conns => #{HostInfo => [Pid]},
+                                     cur_conns => 1,
+                                     cur_pending_conns => 0,
+                                     max_conns => infinity,
+                                     max_pending_conns => infinity
                                     },
                                    State2)}]
+
                        end},
                       {"unexpected gun connection termination",
                        fun(Title) ->
@@ -134,7 +151,11 @@ checkout_checkin_test_() ->
                                      await_up_conns => #{},
                                      checked_in_conns => #{},
                                      checked_out_conns => #{},
-                                     pool_conns => #{}
+                                     pool_conns => #{},
+                                     cur_conns => 0,
+                                     cur_pending_conns => 0,
+                                     max_conns => infinity,
+                                     max_pending_conns => infinity
                                     },
                                    State)}]
                        end},
@@ -160,7 +181,11 @@ checkout_checkin_test_() ->
                                      await_up_conns => #{},
                                      checked_in_conns => #{Pid => HostInfo},
                                      checked_out_conns => #{},
-                                     pool_conns => #{HostInfo => [Pid]}
+                                     pool_conns => #{HostInfo => [Pid]},
+                                     cur_conns => 1,
+                                     cur_pending_conns => 0,
+                                     max_conns => infinity,
+                                     max_pending_conns => infinity
                                     },
                                    State1)},
                                 {Title ++ ": after idle timeout",
@@ -169,7 +194,11 @@ checkout_checkin_test_() ->
                                      await_up_conns => #{},
                                      checked_in_conns => #{},
                                      checked_out_conns => #{},
-                                     pool_conns => #{}
+                                     pool_conns => #{},
+                                     cur_conns => 0,
+                                     cur_pending_conns => 0,
+                                     max_conns => infinity,
+                                     max_pending_conns => infinity
                                     },
                                    State2)}]
                        end}],

@@ -24,7 +24,11 @@
          {await, term()} |
          {await_body, term()} |
          {checkout,
-          {timeout, term()} | {await_up, term()} | {pool_checkout, term()} | {checkout, term()}} |
+          {limit, max_conns | max_pending_conns} |
+          {timeout, term()} |
+          {await_up, term()} |
+          {pool_checkout, term()} |
+          {checkout, term()}} |
          {uri, term()} |
          {timeout, term()}}.
 -type resp_headers() :: [{binary(), binary()}].
@@ -254,6 +258,9 @@ checkout(HostInfo, Timeout) ->
             end;
         {ok, {up, {ReturnTo, Pid}}} ->
             {ok, {ReturnTo, {Pid, monitor(process, Pid)}}};
+        {error, {limit, _} = Reason} ->
+            %% Unwrap limit errors for direct pattern matching
+            {error, Reason};
         {error, Reason} ->
             {error, {pool_checkout, Reason}}
     catch
@@ -315,7 +322,11 @@ summarize_state(#{
                   await_up_conns := AC,
                   checked_in_conns := IC,
                   checked_out_conns := OC,
-                  pool_conns := PC
+                  pool_conns := PC,
+                  cur_conns := CC,
+                  cur_pending_conns := CPC,
+                  max_conns := MC,
+                  max_pending_conns := MPC
                  }) ->
     PoolConns =
         lists:foldl(fun({Host, Pids}, Acc) -> [{Host, length(Pids)} | Acc] end,
@@ -326,7 +337,11 @@ summarize_state(#{
           #{
             await_up => maps:size(AC),
             checked_in => maps:size(IC),
-            checked_out => maps:size(OC)
+            checked_out => maps:size(OC),
+            current => CC,
+            current_pending => CPC,
+            max => MC,
+            max_pending => MPC
            },
       pool_conns => lists:sort(fun({_, A}, {_, B}) -> A > B end, PoolConns)
      }.
