@@ -281,6 +281,7 @@ conn_cancel_await_up(Pid,
 
 %% @private
 %% @doc Adds a PID to the pool for the given HostInfo.
+%% Callers must ensure the PID is not already in checked_in state to avoid duplicates.
 -spec add_to_pool(TabId :: ets:tid(), HostInfo :: hostinfo(), Pid :: pid()) -> ok.
 add_to_pool(TabId, HostInfo, Pid) ->
     PidsToPool =
@@ -288,12 +289,7 @@ add_to_pool(TabId, HostInfo, Pid) ->
             [] ->
                 [Pid];
             [{_, Pids}] ->
-                case lists:member(Pid, Pids) of
-                    true ->
-                        Pids;
-                    false ->
-                        [Pid | Pids]
-                end
+                [Pid | Pids]
         end,
     ets:insert(TabId, {{pool, HostInfo}, PidsToPool}),
     ok.
@@ -329,7 +325,13 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout, cu
             cancel_idle_timer(OldConn#conn.timer_ref),
             Conn = OldConn#conn{state = checked_in, timer_ref = idle_timer(Pid, IdleTimeout)},
             ets:insert(TabId, {{pid, Pid}, Conn}),
-            add_to_pool(TabId, HostInfo, Pid),
+            case OldConn#conn.state of
+                checked_in ->
+                    %% Already in pool (e.g. double-checkin), skip to avoid duplicate
+                    ok;
+                _ ->
+                    add_to_pool(TabId, HostInfo, Pid)
+            end,
             {{ok, {HostInfo, Pid}}, State}
     end.
 
