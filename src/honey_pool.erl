@@ -240,7 +240,7 @@ next_timeout(Timeout, MicroSec) ->
           {ok, {ReturnTo :: pid(), Conn :: conn()}} | {error, Reason :: term()}.
 checkout(HostInfo, Timeout) ->
     {Elapsed, Result} =
-        timer:tc(fun wpool:call/4, [?WORKER, {checkout, HostInfo}, best_worker, Timeout]),
+        timer:tc(fun wpool:call/4, [?WORKER, {checkout, HostInfo}, {hash_worker, HostInfo}, Timeout]),
     try Result of
         {ok, {await_up, {ReturnTo, Pid}}} ->
             MRef = monitor(process, Pid),
