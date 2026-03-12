@@ -243,7 +243,7 @@ next_timeout(Timeout, MicroSec) ->
 checkout(HostInfo, Timeout) ->
     Ref = make_ref(),
     T0 = erlang:monotonic_time(microsecond),
-    wpool:cast(?WORKER, {checkout_async, HostInfo, self(), Ref}, best_worker),
+    wpool:cast(?WORKER, {checkout_async, HostInfo, self(), Ref}, {hash_worker, HostInfo}),
     Result =
         case Timeout of
             infinity ->
