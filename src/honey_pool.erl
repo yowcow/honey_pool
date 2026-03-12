@@ -236,26 +236,15 @@ next_timeout(Timeout, MicroSec) ->
 
 %% @private
 %% @doc Checks out a connection from the worker pool.
-%% Uses async cast + receive to avoid blocking the wpool gen_server caller,
-%% allowing best_worker routing to distribute load across all workers.
 -spec checkout(HostInfo :: hostinfo(), Timeout :: timeout()) ->
           {ok, {ReturnTo :: pid(), Conn :: conn()}} | {error, Reason :: term()}.
 checkout(HostInfo, Timeout) ->
-    Ref = make_ref(),
     T0 = erlang:monotonic_time(microsecond),
-    wpool:cast(?WORKER, {checkout_async, HostInfo, self(), Ref}, {hash_worker, HostInfo}),
     Result =
-        case Timeout of
-            infinity ->
-                receive
-                    {checkout_reply, Ref, R} -> R
-                end;
-            _ ->
-                receive
-                    {checkout_reply, Ref, R} -> R
-                after Timeout ->
-                    timeout
-                end
+        try
+            wpool:call(?WORKER, {checkout, HostInfo}, {hash_worker, HostInfo}, Timeout)
+        catch
+            exit:{timeout, _} -> timeout
         end,
     Elapsed = erlang:monotonic_time(microsecond) - T0,
     handle_checkout_result(Result, Timeout, Elapsed).
