@@ -92,6 +92,11 @@ handle_call(Req, From, State) ->
 %% - `{checkin, HostInfo, Pid}`: Checks a connection back into the pool.
 %% - `{cancel_await_up, Pid}`: Cancels a pending connection attempt.
 -spec handle_cast(Req :: term(), State :: state()) -> {noreply, state()}.
+handle_cast({checkout_async, HostInfo, Requester, Ref} = Req, State) ->
+    {Result, NewState} = conn_checkout(HostInfo, Requester, State),
+    ?LOG_DEBUG("(~p) handle_cast (~p) -> ~p", [self(), Req, Result]),
+    Requester ! {checkout_reply, Ref, Result},
+    {noreply, NewState};
 handle_cast({checkin, HostInfo, Pid} = Req, State) ->
     {Result, NewState} = conn_checkin(HostInfo, Pid, State),
     ?LOG_DEBUG("(~p) handle_cast (~p) -> ~p", [self(), Req, Result]),

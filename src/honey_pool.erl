@@ -236,37 +236,57 @@ next_timeout(Timeout, MicroSec) ->
 
 %% @private
 %% @doc Checks out a connection from the worker pool.
+%% Uses async cast + receive to avoid blocking the wpool gen_server caller,
+%% allowing best_worker routing to distribute load across all workers.
 -spec checkout(HostInfo :: hostinfo(), Timeout :: timeout()) ->
           {ok, {ReturnTo :: pid(), Conn :: conn()}} | {error, Reason :: term()}.
 checkout(HostInfo, Timeout) ->
-    {Elapsed, Result} =
-        timer:tc(fun wpool:call/4, [?WORKER, {checkout, HostInfo}, {hash_worker, HostInfo}, Timeout]),
-    try Result of
-        {ok, {await_up, {ReturnTo, Pid}}} ->
-            MRef = monitor(process, Pid),
-            TimeoutRemaining = next_timeout(Timeout, Elapsed),
-            case gun:await_up(Pid, TimeoutRemaining, MRef) of
-                {ok, _} ->
-                    {ok, {ReturnTo, {Pid, MRef}}};
-                {error, timeout} ->
-                    %% even on timeout, let gun continue for the future use
-                    cancel_await_up(ReturnTo, {Pid, MRef}),
-                    {error, {timeout, await_up}};
-                {error, Reason} ->
-                    cleanup({Pid, MRef}),
-                    {error, {await_up, Reason}}
-            end;
-        {ok, {up, {ReturnTo, Pid}}} ->
-            {ok, {ReturnTo, {Pid, monitor(process, Pid)}}};
-        {error, {limit, _} = Reason} ->
-            %% Unwrap limit errors for direct pattern matching
-            {error, Reason};
+    Ref = make_ref(),
+    T0 = erlang:monotonic_time(microsecond),
+    wpool:cast(?WORKER, {checkout_async, HostInfo, self(), Ref}, best_worker),
+    Result =
+        case Timeout of
+            infinity ->
+                receive
+                    {checkout_reply, Ref, R} -> R
+                end;
+            _ ->
+                receive
+                    {checkout_reply, Ref, R} -> R
+                after Timeout ->
+                    timeout
+                end
+        end,
+    Elapsed = erlang:monotonic_time(microsecond) - T0,
+    handle_checkout_result(Result, Timeout, Elapsed).
+
+
+%% @private
+-spec handle_checkout_result(Result :: term(), Timeout :: timeout(), ElapsedMicro :: integer()) ->
+          {ok, {ReturnTo :: pid(), Conn :: conn()}} | {error, Reason :: term()}.
+handle_checkout_result({ok, {await_up, {ReturnTo, Pid}}}, Timeout, Elapsed) ->
+    MRef = monitor(process, Pid),
+    TimeoutRemaining = next_timeout(Timeout, Elapsed),
+    case gun:await_up(Pid, TimeoutRemaining, MRef) of
+        {ok, _} ->
+            {ok, {ReturnTo, {Pid, MRef}}};
+        {error, timeout} ->
+            %% even on timeout, let gun continue for the future use
+            cancel_await_up(ReturnTo, {Pid, MRef}),
+            {error, {timeout, await_up}};
         {error, Reason} ->
-            {error, {pool_checkout, Reason}}
-    catch
-        _:Err ->
-            {error, {checkout, Err}}
-    end.
+            cleanup({Pid, MRef}),
+            {error, {await_up, Reason}}
+    end;
+handle_checkout_result({ok, {up, {ReturnTo, Pid}}}, _Timeout, _Elapsed) ->
+    {ok, {ReturnTo, {Pid, monitor(process, Pid)}}};
+handle_checkout_result({error, {limit, _} = Reason}, _Timeout, _Elapsed) ->
+    %% Unwrap limit errors for direct pattern matching
+    {error, Reason};
+handle_checkout_result({error, Reason}, _Timeout, _Elapsed) ->
+    {error, {pool_checkout, Reason}};
+handle_checkout_result(timeout, _Timeout, _Elapsed) ->
+    {error, {timeout, checkout}}.
 
 
 %% @private
