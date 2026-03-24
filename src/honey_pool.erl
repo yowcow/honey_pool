@@ -3,6 +3,10 @@
 -export([get/1, get/2, get/3, get/4,
          post/2, post/3, post/4, post/5,
          request/6,
+         async_post/5,
+         async_request/6,
+         checkin/3,
+         cleanup/1,
          return_to/3,
          dump_state/0,
          summarize_state/0]).
@@ -130,6 +134,60 @@ request(Method, Url, Headers, Body, Opts, Timeout) ->
                                    Opts,
                                    next_timeout(Timeout, Elapsed)),
                     handle_request_result(Result, ReturnTo, HostInfo, Conn, Method, Url);
+                {error, Reason} ->
+                    {error, {checkout, Reason}}
+            end;
+        {error, Reason} ->
+            {error, {uri, Reason}}
+    end.
+
+
+%% @doc Performs an async POST request.
+%% Fires the HTTP request and returns immediately. The calling process will receive
+%% gun_response / gun_data messages when the response arrives.
+-spec async_post(Url :: url(),
+                 Headers :: req_headers(),
+                 Body :: binary(),
+                 Opts :: gun_req_opts(),
+                 Timeout :: timeout()) ->
+          {ok,
+           #{stream_ref := reference(),
+             return_to := pid(),
+             host_info := hostinfo(),
+             conn := conn()}} |
+          {error, term()}.
+async_post(Url, Headers, Body, Opts, Timeout) ->
+    async_request(?METHOD_POST, Url, Headers, Body, Opts, Timeout).
+
+
+%% @doc Performs an async HTTP request.
+%% Fires the HTTP request and returns immediately. The calling process will receive
+%% gun_response / gun_data messages when the response arrives.
+-spec async_request(Method :: method(),
+                    Url :: url(),
+                    Headers :: req_headers(),
+                    Body :: binary() | no_data,
+                    Opts :: gun_req_opts(),
+                    Timeout :: timeout()) ->
+          {ok,
+           #{stream_ref := reference(),
+             return_to := pid(),
+             host_info := hostinfo(),
+             conn := conn()}} |
+          {error, term()}.
+async_request(Method, Url, Headers, Body, Opts, Timeout) ->
+    case honey_pool_uri:parse(Url) of
+        {ok, U} ->
+            HostInfo = {U#uri.host, U#uri.port, U#uri.transport},
+            case checkout(HostInfo, Timeout) of
+                {ok, {ReturnTo, {Pid, _MRef} = Conn}} ->
+                    ReqHeaders = headers(Headers),
+                    StreamRef = gun:request(Pid, Method, U#uri.pathquery, ReqHeaders, Body, Opts),
+                    {ok,
+                     #{stream_ref => StreamRef,
+                       return_to => ReturnTo,
+                       host_info => HostInfo,
+                       conn => Conn}};
                 {error, Reason} ->
                     {error, {checkout, Reason}}
             end;
@@ -286,7 +344,6 @@ cancel_await_up(ReturnTo, {Pid, MRef}) ->
     return_to(ReturnTo, Pid, {cancel_await_up, Pid}).
 
 
-%% @private
 %% @doc Returns a connection to the pool.
 -spec checkin(ReturnTo :: pid(), HostInfo :: hostinfo(), Conn :: conn()) -> ok.
 checkin(ReturnTo, HostInfo, {Pid, MRef}) ->
@@ -294,7 +351,6 @@ checkin(ReturnTo, HostInfo, {Pid, MRef}) ->
     return_to(ReturnTo, Pid, {checkin, HostInfo, Pid}).
 
 
-%% @private
 %% @doc Cleans up a connection by closing it.
 -spec cleanup(Conn :: conn()) -> ok.
 cleanup({Pid, MRef}) ->
