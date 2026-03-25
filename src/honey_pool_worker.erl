@@ -475,13 +475,15 @@ dump_state(_, Acc) ->
 -spec maintain_min_conns(hostinfo(), state()) -> state().
 maintain_min_conns(_HostInfo, #state{min_conns = 0} = State) ->
     State;
-maintain_min_conns(HostInfo, #state{tabid = TabId, min_conns = MinConns} = State) ->
+maintain_min_conns(HostInfo, #state{tabid = TabId, min_conns = MinConns, cur_pending_conns = CurPending} = State) ->
     PoolSize =
         case ets:lookup(TabId, {pool, HostInfo}) of
             [{_, Pids}] -> length(Pids);
             _ -> 0
         end,
-    replenish_pool(HostInfo, max(0, MinConns - PoolSize), State).
+    %% Count pending (await_up) connections towards min_conns to avoid
+    %% spamming conn_open during burst when connections are already being established.
+    replenish_pool(HostInfo, max(0, MinConns - PoolSize - CurPending), State).
 
 %% @private
 -spec replenish_pool(hostinfo(), non_neg_integer(), state()) -> state().
