@@ -34,6 +34,10 @@
 -type resp_headers() :: [{binary(), binary()}].
 -type status() :: integer().
 -type url() :: string().
+-type pool_opts() :: #{
+        conn_opts => gun_opts(),
+        req_opts => gun_req_opts()
+       }.
 
 
 %% @doc Performs a GET request.
@@ -51,7 +55,7 @@ get(Url, Timeout) ->
 
 
 %% @doc Performs a GET request with the given headers, options and timeout.
--spec get(Url :: url(), Headers :: req_headers(), Opts :: gun_req_opts() | timeout()) ->
+-spec get(Url :: url(), Headers :: req_headers(), Opts :: pool_opts() | timeout()) ->
           resp().
 get(Url, Headers, Opts) when is_map(Opts) ->
     get(Url, Headers, Opts, infinity);
@@ -62,7 +66,7 @@ get(Url, Headers, Timeout) ->
 %% @doc Performs a GET request with the given headers, options, and timeout.
 -spec get(Url :: url(),
           Headers :: req_headers(),
-          Opts :: gun_req_opts(),
+          Opts :: pool_opts(),
           Timeout :: timeout()) ->
           resp().
 get(Url, Headers, Opts, Timeout) ->
@@ -85,7 +89,7 @@ post(Url, Headers, Body) ->
 -spec post(Url :: url(),
            Headers :: req_headers(),
            Body :: binary(),
-           Opts :: gun_req_opts() | timeout()) ->
+           Opts :: pool_opts() | timeout()) ->
           resp().
 post(Url, Headers, Body, Opts) when is_map(Opts) ->
     post(Url, Headers, Body, Opts, infinity);
@@ -97,7 +101,7 @@ post(Url, Headers, Body, Timeout) ->
 -spec post(Url :: url(),
            Headers :: req_headers(),
            Body :: binary(),
-           Opts :: gun_req_opts(),
+           Opts :: pool_opts(),
            Timeout :: timeout()) ->
           resp().
 post(Url, Headers, Body, Opts, Timeout) ->
@@ -111,7 +115,7 @@ post(Url, Headers, Body, Opts, Timeout) ->
               Url :: url(),
               Headers :: req_headers(),
               Body :: binary() | no_data,
-              Opts :: gun_req_opts(),
+              Opts :: pool_opts(),
               Timeout :: timeout()) ->
           resp().
 request(Method, Url, Headers, Body, Opts, Timeout) ->
