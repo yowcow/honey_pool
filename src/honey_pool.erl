@@ -5,6 +5,9 @@
          request/6,
          async_post/5,
          async_request/6,
+         start_async_checkout/3,
+         fire_request/7,
+         parse_url/1,
          checkin/3,
          cleanup/1,
          return_to/3,
@@ -289,6 +292,46 @@ next_timeout(Timeout, MicroSec) ->
             Timeout - Interval;
         _ ->
             0
+    end.
+
+
+%% @doc Starts an async checkout for an already-parsed HostInfo.
+%% CallerPid will receive:
+%%   {checkout_result, Ref, {ok, {ReturnTo, HostInfo, GunPid}}} on success
+%%   {checkout_result, Ref, {error, Reason}}                    on failure
+-spec start_async_checkout(HostInfo :: hostinfo(), CallerPid :: pid(), Ref :: reference()) -> ok.
+start_async_checkout(HostInfo, CallerPid, Ref) ->
+    wpool:cast(?WORKER, {async_checkout, HostInfo, CallerPid, Ref}, {hash_worker, HostInfo}).
+
+
+%% @doc Fires an HTTP request on an already checked-out gun connection.
+%% Url is used only for debug logging; PathQuery is what is sent over the wire.
+%% Returns the gun stream reference.
+-spec fire_request(Method :: method(),
+                   Url :: url(),
+                   PathQuery :: string(),
+                   Headers :: req_headers(),
+                   Body :: binary() | no_data,
+                   Opts :: gun_req_opts(),
+                   GunPid :: pid()) -> reference().
+fire_request(Method, Url, PathQuery, Headers, Body, Opts, GunPid) ->
+    ReqHeaders = headers(Headers),
+    ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p", [self(), GunPid, Method, Url]),
+    gun:request(GunPid, Method, PathQuery, ReqHeaders, Body, Opts).
+
+
+%% @doc Parses a URL and returns HostInfo and PathQuery.
+-spec parse_url(Url :: url()) ->
+          {ok, #{host_info := hostinfo(), path_query := string()}} | {error, term()}.
+parse_url(Url) ->
+    case honey_pool_uri:parse(Url) of
+        {ok, U} ->
+            {ok, #{
+               host_info => {U#uri.host, U#uri.port, U#uri.transport},
+               path_query => U#uri.pathquery
+              }};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 
