@@ -193,6 +193,8 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout) ->
                 case gun:await_body(Pid, StreamRef, TimeoutRemaining, MRef) of
                     {ok, RespBody} ->
                         {ok, {200, RespHeaders, RespBody}};
+                    {ok, RespBody, RespHeaders2} ->
+                        {ok, {200, lists:merge(RespHeaders2, RespHeaders), RespBody}};
                     {error, timeout} ->
                         {error, {timeout, await_body}};
                     {error, Reason} ->
