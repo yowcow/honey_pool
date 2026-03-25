@@ -105,19 +105,20 @@ request_test_() ->
                    end},
                   {"get: with http2 prior knowledge",
                    fun() ->
-                           %% This won't actually succeed because our cowboy test listener
-                           %% is not configured for http2, but we can verify that the
-                           %% protocols option is handled and a connection attempt is made.
-                           ConnOpts1 = #{conn_opts => #{protocols => [http2], retry => 0}},
-                           ConnOpts2 = #{conn_opts => #{protocols => [http2], retry => 1}},
+                           %% Our cowboy test listener is configured with start_clear/3 (HTTP/1),
+                           %% so we include an HTTP/1 fallback alongside http2. This verifies
+                           %% that the protocols option is handled and that different conn_opts
+                           %% values result in separate pooled connections.
+                           ConnOpts1 = #{conn_opts => #{protocols => [http2, http], retry => 0}},
+                           ConnOpts2 = #{conn_opts => #{protocols => [http2, http], retry => 1}},
                            Actual1 = honey_pool:get([Url, "/status/200/delay/10"], [], ConnOpts1, 1000),
                            ?assertMatch({ok, {200, _, _}}, Actual1),
                            Actual2 = honey_pool:get([Url, "/status/200/delay/10"], [], ConnOpts2, 1000),
                            ?assertMatch({ok, {200, _, _}}, Actual2),
                            %% Verify that different conn_opts values are pooled separately
                            {ok, #uri{port = Port}} = honey_pool_uri:parse(Url),
-                           Key1 = {"localhost", Port, tcp, #{protocols => [http2], retry => 0}},
-                           Key2 = {"localhost", Port, tcp, #{protocols => [http2], retry => 1}},
+                           Key1 = {"localhost", Port, tcp, #{protocols => [http2, http], retry => 0}},
+                           Key2 = {"localhost", Port, tcp, #{protocols => [http2, http], retry => 1}},
                            States = honey_pool:dump_state(),
                            CountConns =
                                fun(Key, SList) ->
