@@ -93,13 +93,27 @@ request_test_() ->
                            ?assertMatch({error, {checkout, {timeout, await_up}}}, Actual)
                    end},
                   {"get: with http2 prior knowledge",
-                   fun() ->
-                           %% This won't actually succeed because our cowboy test listener
-                           %% is not configured for http2, but we can verify that the
-                           %% protocols option is handled and a connection attempt is made.
-                           Actual = honey_pool:get([Url, "/status/200/delay/10"], [], #{conn_opts => #{protocols => [http2]}}, 1000),
-                           ?assertMatch({ok, {200, _, _}}, Actual)
-                   end}],
+                  fun() ->
+                          %% This won't actually succeed because our cowboy test listener
+                          %% is not configured for http2, but we can verify that the
+                          %% protocols option is handled and a connection attempt is made.
+                          ConnOpts1 = #{conn_opts => #{protocols => [http2]}},
+                          ConnOpts2 = #{conn_opts => #{protocols => [http2], alt => true}},
+                          Actual1 = honey_pool:get([Url, "/status/200/delay/10"], [], ConnOpts1, 1000),
+                          ?assertMatch({ok, {200, _, _}}, Actual1),
+                          Actual2 = honey_pool:get([Url, "/status/200/delay/10"], [], ConnOpts2, 1000),
+                          ?assertMatch({ok, {200, _, _}}, Actual2),
+                          %% Verify that different conn_opts values are pooled separately
+                          State = honey_pool:dump_state(),
+                          case State of
+                              L when is_list(L) ->
+                                  ?assert(length(L) >= 2);
+                              M when is_map(M) ->
+                                  ?assert(maps:size(M) >= 2);
+                              _ ->
+                                  ?assert(false)
+                          end
+                  end}],
              F = fun({Title, Test}) -> [{Title, Test}] end,
              lists:map(F, Cases)
      end}.
