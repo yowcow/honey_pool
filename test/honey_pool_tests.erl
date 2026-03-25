@@ -94,6 +94,15 @@ request_test_() ->
                            Actual = honey_pool:get(HttpsUrl, [], 10),
                            ?assertMatch({error, {checkout, {timeout, await_up}}}, Actual)
                    end},
+                  {"get: with legacy req_opts map (backward compat)",
+                   fun() ->
+                           %% A plain gun:req_opts() map (no conn_opts/req_opts keys) should
+                           %% be treated as legacy request opts rather than silently ignored.
+                           %% reply_to => self() is a valid gun req_opt and should be forwarded.
+                           LegacyOpts = #{reply_to => self()},
+                           Actual = honey_pool:get([Url, "/status/200/delay/50"], [], LegacyOpts, 1000),
+                           ?assertMatch({ok, {200, _, _}}, Actual)
+                   end},
                   {"get: with http2 prior knowledge",
                    fun() ->
                            %% This won't actually succeed because our cowboy test listener
