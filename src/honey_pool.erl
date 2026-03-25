@@ -41,6 +41,7 @@
 %% Legacy format: a plain gun:req_opts() map without pool_opts() keys.
 -type legacy_req_opts() :: gun_req_opts().
 
+-export_type([pool_opts/0]).
 
 %% @doc Performs a GET request.
 -spec get(Url :: url()) -> resp().
