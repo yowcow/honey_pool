@@ -222,16 +222,17 @@ conn_open(_HostInfo, _Requester, #state{max_conns = Max, cur_conns = Cur} = Stat
 conn_open(_HostInfo, _Requester, #state{max_pending_conns = Max, cur_pending_conns = Cur} = State)
   when Cur >= Max ->
     {{error, {limit, max_pending_conns}}, State};
-conn_open({Host, Port, Transport},
+conn_open({Host, Port, Transport, ConnOpts},
           Requester,
           #state{
-            gun_opts = GunOpts,
+            gun_opts = DefaultGunOpts,
             tabid = TabId,
             cur_conns = CurConns,
             cur_pending_conns = CurPending
            } = State) ->
-    GunOptsWithTransport = GunOpts#{transport => Transport},
-    HostInfo = {Host, Port, Transport},
+    MergedGunOpts = maps:merge(DefaultGunOpts, ConnOpts),
+    GunOptsWithTransport = MergedGunOpts#{transport => Transport},
+    HostInfo = {Host, Port, Transport, ConnOpts},
     case gun:open(Host, Port, GunOptsWithTransport) of
         {ok, Pid} ->
             ets:insert(TabId,

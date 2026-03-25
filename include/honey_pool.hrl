@@ -35,8 +35,8 @@
 %% @doc The transport protocol for the connection.
 -type transport() :: tcp | tls.
 
-%% @doc Information about a host, including host, port, and transport protocol.
--type hostinfo() :: {Host :: string(), Port :: integer(), Transport :: transport()}.
+%% @doc Information about a host, including host, port, transport protocol, and connection options.
+-type hostinfo() :: {Host :: string(), Port :: integer(), Transport :: transport(), ConnOpts :: gun_opts()}.
 
 %% @doc The state of a honey_pool_worker.
 -type state() :: #state{}.

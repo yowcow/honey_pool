@@ -91,6 +91,14 @@ request_test_() ->
                            HttpsUrl = string:replace(Url, "http", "https", leading),
                            Actual = honey_pool:get(HttpsUrl, [], 10),
                            ?assertMatch({error, {checkout, {timeout, await_up}}}, Actual)
+                   end},
+                  {"get: with http2 prior knowledge",
+                   fun() ->
+                           %% This won't actually succeed because our cowboy test listener
+                           %% is not configured for http2, but we can verify that the
+                           %% protocols option is handled and a connection attempt is made.
+                           Actual = honey_pool:get([Url, "/status/200/delay/10"], [], #{conn_opts => #{protocols => [http2]}}, 1000),
+                           ?assertMatch({ok, {200, _, _}}, Actual)
                    end}],
              F = fun({Title, Test}) -> [{Title, Test}] end,
              lists:map(F, Cases)

@@ -117,7 +117,9 @@ post(Url, Headers, Body, Opts, Timeout) ->
 request(Method, Url, Headers, Body, Opts, Timeout) ->
     case honey_pool_uri:parse(Url) of
         {ok, U} ->
-            HostInfo = {U#uri.host, U#uri.port, U#uri.transport},
+            ConnOpts = maps:get(conn_opts, Opts, #{}),
+            ReqOpts = maps:get(req_opts, Opts, #{}),
+            HostInfo = {U#uri.host, U#uri.port, U#uri.transport, ConnOpts},
             {Elapsed, Checkout} = timer:tc(fun checkout/2, [HostInfo, Timeout]),
             case Checkout of
                 {ok, {ReturnTo, Conn}} ->
@@ -127,7 +129,7 @@ request(Method, Url, Headers, Body, Opts, Timeout) ->
                                    U#uri.pathquery,
                                    Headers,
                                    Body,
-                                   Opts,
+                                   ReqOpts,
                                    next_timeout(Timeout, Elapsed)),
                     handle_request_result(Result, ReturnTo, HostInfo, Conn, Method, Url);
                 {error, Reason} ->
