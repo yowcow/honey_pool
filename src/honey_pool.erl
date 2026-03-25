@@ -127,7 +127,9 @@ request(Method, Url, Headers, Body, Opts, Timeout) ->
         {ok, U} ->
             NormalizedOpts = normalize_pool_opts(Opts),
             ConnOpts = maps:get(conn_opts, NormalizedOpts, #{}),
-            ReqOpts = maps:get(req_opts, NormalizedOpts, #{}),
+            ReqOpts0 = maps:get(req_opts, NormalizedOpts, #{}),
+            LegacyReqOpts = maps:without([conn_opts, req_opts], NormalizedOpts),
+            ReqOpts = maps:merge(LegacyReqOpts, ReqOpts0),
             HostInfo = {U#uri.host, U#uri.port, U#uri.transport, ConnOpts},
             {Elapsed, Checkout} = timer:tc(fun checkout/2, [HostInfo, Timeout]),
             case Checkout of
