@@ -223,6 +223,7 @@ checkout_from_pool(HostInfo, Requester, [Pid | Pids], #state{tabid = TabId} = St
             checkout_from_pool(HostInfo, Requester, Pids, State);
         [{_, Conn}] ->
             ets:insert(TabId, {{pool, HostInfo}, Pids}),
+            ets:update_counter(TabId, {pool_size, HostInfo}, {2, -1, 0, 0}, {{pool_size, HostInfo}, 0}),
             cancel_idle_timer(Conn#conn.timer_ref),
             ets:insert(TabId, {{pid, Pid}, Conn#conn{state = checked_out, timer_ref = undefined}}),
             {ok, {up, Pid}}
@@ -312,6 +313,7 @@ add_to_pool(TabId, HostInfo, Pid) ->
                 [Pid | Pids]
         end,
     ets:insert(TabId, {{pool, HostInfo}, PidsToPool}),
+    ets:update_counter(TabId, {pool_size, HostInfo}, {2, 1}, {{pool_size, HostInfo}, 0}),
     ok.
 
 
@@ -409,9 +411,16 @@ conn_down(Pid, #state{tabid = TabId, cur_conns = CurConns, cur_pending_conns = C
             HostInfo = Conn#conn.hostinfo,
             demonitor(Conn#conn.monitor_ref, [flush]),
             cancel_idle_timer(Conn#conn.timer_ref),
-            case ets:lookup(TabId, {pool, HostInfo}) of
-                [{_, Pids}] ->
-                    ets:insert(TabId, {{pool, HostInfo}, [ P || P <- Pids, P =/= Pid ]});
+            case Conn#conn.state of
+                checked_in ->
+                    %% Remove from pool list and decrement pool_size counter
+                    case ets:lookup(TabId, {pool, HostInfo}) of
+                        [{_, Pids}] ->
+                            ets:insert(TabId, {{pool, HostInfo}, [ P || P <- Pids, P =/= Pid ]});
+                        _ ->
+                            ok
+                    end,
+                    ets:update_counter(TabId, {pool_size, HostInfo}, {2, -1, 0, 0}, {{pool_size, HostInfo}, 0});
                 _ ->
                     ok
             end,
@@ -488,9 +497,10 @@ dump_state(_, Acc) ->
 maintain_min_conns(_HostInfo, #state{min_conns = 0} = State) ->
     State;
 maintain_min_conns(HostInfo, #state{tabid = TabId, min_conns = MinConns, pending_per_host = PendingPerHost} = State) ->
+    %% O(1) pool size lookup via ETS counter (maintained by add_to_pool/checkout_from_pool/conn_down)
     PoolSize =
-        case ets:lookup(TabId, {pool, HostInfo}) of
-            [{_, Pids}] -> length(Pids);
+        case ets:lookup(TabId, {pool_size, HostInfo}) of
+            [{_, N}] -> N;
             _ -> 0
         end,
     %% Use per-host pending count to avoid blocking replenishment of other hosts
