@@ -245,7 +245,8 @@ conn_open({Host, Port, Transport},
             gun_opts = GunOpts,
             tabid = TabId,
             cur_conns = CurConns,
-            cur_pending_conns = CurPending
+            cur_pending_conns = CurPending,
+            pending_per_host = PendingPerHost
            } = State) ->
     GunOptsWithTransport = GunOpts#{transport => Transport},
     HostInfo = {Host, Port, Transport},
@@ -262,7 +263,10 @@ conn_open({Host, Port, Transport},
             {{ok, {await_up, Pid}},
              State#state{
                cur_conns = CurConns + 1,
-               cur_pending_conns = CurPending + 1
+               cur_pending_conns = CurPending + 1,
+               pending_per_host = PendingPerHost#{
+                   HostInfo => maps:get(HostInfo, PendingPerHost, 0) + 1
+               }
               }};
         {error, Reason} ->
             {{error, {gun_open, Reason}}, State}
@@ -355,12 +359,17 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout, cu
 %% @private
 %% @doc Handles the `gun_up` message, indicating a connection is ready.
 -spec conn_up(pid(), tcp | tls, state()) -> {{ok, term()}, state()}.
-conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending} = State) ->
+conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending, pending_per_host = PendingPerHost} = State) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [{_, Conn}] ->
-            %% Only decrement cur_pending_conns if connection is in await_up state
+            %% Only decrement pending counts if connection is in await_up state
             State1 = case Conn#conn.state of
-                         await_up -> State#state{cur_pending_conns = CurPending - 1};
+                         await_up ->
+                             HostInfo = Conn#conn.hostinfo,
+                             NewPPH = PendingPerHost#{
+                                 HostInfo => max(0, maps:get(HostInfo, PendingPerHost, 0) - 1)
+                             },
+                             State#state{cur_pending_conns = CurPending - 1, pending_per_host = NewPPH};
                          _ -> State
                      end,
             case Conn#conn.requester of
@@ -394,7 +403,7 @@ conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending} = S
 %% @private
 %% @doc Handles the `gun_down` message, indicating a connection has been lost.
 -spec conn_down(pid(), state()) -> {{ok, term()}, state()}.
-conn_down(Pid, #state{tabid = TabId, cur_conns = CurConns, cur_pending_conns = CurPending} = State) ->
+conn_down(Pid, #state{tabid = TabId, cur_conns = CurConns, cur_pending_conns = CurPending, pending_per_host = PendingPerHost} = State) ->
     case ets:take(TabId, {pid, Pid}) of
         [{_, Conn}] ->
             HostInfo = Conn#conn.hostinfo,
@@ -409,7 +418,10 @@ conn_down(Pid, #state{tabid = TabId, cur_conns = CurConns, cur_pending_conns = C
             NewState =
                 case Conn#conn.state of
                     await_up ->
-                        State#state{cur_conns = CurConns - 1, cur_pending_conns = CurPending - 1};
+                        NewPPH = PendingPerHost#{
+                            HostInfo => max(0, maps:get(HostInfo, PendingPerHost, 0) - 1)
+                        },
+                        State#state{cur_conns = CurConns - 1, cur_pending_conns = CurPending - 1, pending_per_host = NewPPH};
                     _ ->
                         State#state{cur_conns = CurConns - 1}
                 end,
@@ -475,15 +487,16 @@ dump_state(_, Acc) ->
 -spec maintain_min_conns(hostinfo(), state()) -> state().
 maintain_min_conns(_HostInfo, #state{min_conns = 0} = State) ->
     State;
-maintain_min_conns(HostInfo, #state{tabid = TabId, min_conns = MinConns, cur_pending_conns = CurPending} = State) ->
+maintain_min_conns(HostInfo, #state{tabid = TabId, min_conns = MinConns, pending_per_host = PendingPerHost} = State) ->
     PoolSize =
         case ets:lookup(TabId, {pool, HostInfo}) of
             [{_, Pids}] -> length(Pids);
             _ -> 0
         end,
-    %% Count pending (await_up) connections towards min_conns to avoid
-    %% spamming conn_open during burst when connections are already being established.
-    replenish_pool(HostInfo, max(0, MinConns - PoolSize - CurPending), State).
+    %% Use per-host pending count to avoid blocking replenishment of other hosts
+    %% on the same worker when they happen to hash to the same worker.
+    PendingForHost = maps:get(HostInfo, PendingPerHost, 0),
+    replenish_pool(HostInfo, max(0, MinConns - PoolSize - PendingForHost), State).
 
 %% @private
 -spec replenish_pool(hostinfo(), non_neg_integer(), state()) -> state().
