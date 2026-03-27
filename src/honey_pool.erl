@@ -301,7 +301,7 @@ next_timeout(Timeout, MicroSec) ->
 %%   {checkout_result, Ref, {error, Reason}}                    on failure
 -spec start_async_checkout(HostInfo :: hostinfo(), CallerPid :: pid(), Ref :: reference()) -> ok.
 start_async_checkout(HostInfo, CallerPid, Ref) ->
-    wpool:cast(?WORKER, {async_checkout, HostInfo, CallerPid, Ref}, {hash_worker, HostInfo}).
+    wpool:cast(?WORKER, {async_checkout, HostInfo, CallerPid, Ref}, worker_strategy(HostInfo)).
 
 
 %% @doc Fires an HTTP request on an already checked-out gun connection.
@@ -336,6 +336,19 @@ parse_url(Url) ->
 
 
 %% @private
+%% @doc Returns the wpool worker routing strategy.
+%% Defaults to `hash_worker` for connection pool affinity.
+%% Set `{honey_pool, worker_strategy, best_worker}` in sys.config to use
+%% `best_worker` instead (trades pool affinity for even worker load distribution).
+-spec worker_strategy(HostInfo :: hostinfo()) -> wpool:strategy().
+worker_strategy(HostInfo) ->
+    case application:get_env(honey_pool, worker_strategy, hash_worker) of
+        hash_worker -> {hash_worker, HostInfo};
+        best_worker -> best_worker
+    end.
+
+
+%% @private
 %% @doc Checks out a connection from the worker pool.
 -spec checkout(HostInfo :: hostinfo(), Timeout :: timeout()) ->
           {ok, {ReturnTo :: pid(), Conn :: conn()}} | {error, Reason :: term()}.
@@ -343,7 +356,7 @@ checkout(HostInfo, Timeout) ->
     T0 = erlang:monotonic_time(microsecond),
     Result =
         try
-            wpool:call(?WORKER, {checkout, HostInfo}, {hash_worker, HostInfo}, Timeout)
+            wpool:call(?WORKER, {checkout, HostInfo}, worker_strategy(HostInfo), Timeout)
         catch
             exit:{timeout, _} -> timeout
         end,
