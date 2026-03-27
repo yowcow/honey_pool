@@ -337,12 +337,13 @@ parse_url(Url) ->
 
 %% @private
 %% @doc Returns the wpool worker routing strategy.
-%% Defaults to `hash_worker` for connection pool affinity.
-%% Set `{honey_pool, worker_strategy, best_worker}` in sys.config to use
-%% `best_worker` instead (trades pool affinity for even worker load distribution).
+%% Defaults to `best_worker` for backward compatibility.
+%% Set `{honey_pool, worker_strategy, hash_worker}` in sys.config to use
+%% `hash_worker` instead, which improves connection pool affinity by routing
+%% all operations for the same host to the same worker.
 -spec worker_strategy(HostInfo :: hostinfo()) -> wpool:strategy().
 worker_strategy(HostInfo) ->
-    case application:get_env(honey_pool, worker_strategy, hash_worker) of
+    case application:get_env(honey_pool, worker_strategy, best_worker) of
         hash_worker -> {hash_worker, HostInfo};
         best_worker -> best_worker
     end.
