@@ -22,7 +22,7 @@ edge_test_() ->
                
                %% Start worker
                {ok, Pid} = gen_server:start_link(honey_pool_worker, [], []),
-               HostInfo = {"localhost", 1234, tcp},
+               HostInfo = {"localhost", 1234, tcp, #{}},
 
                %% Spawn a dummy process to act as a connection
                DummyConn = spawn(fun() -> receive _ -> ok end end),

@@ -28,7 +28,7 @@ boot_server() ->
     Port = ranch:get_port(?LISTENER),
     [{apps, Apps},
      {port, Port},
-     {hostinfo, {"localhost", Port, tcp}}].
+     {hostinfo, {"localhost", Port, tcp, #{}}}].
 
 
 limit_test_() ->

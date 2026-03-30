@@ -34,7 +34,14 @@
 -type resp_headers() :: [{binary(), binary()}].
 -type status() :: integer().
 -type url() :: string().
+-type pool_opts() :: #{
+        conn_opts => gun_opts(),
+        req_opts => gun_req_opts()
+       }.
+%% Legacy format: a plain gun:req_opts() map without pool_opts() keys.
+-type legacy_req_opts() :: gun_req_opts().
 
+-export_type([pool_opts/0]).
 
 %% @doc Performs a GET request.
 -spec get(Url :: url()) -> resp().
@@ -51,7 +58,9 @@ get(Url, Timeout) ->
 
 
 %% @doc Performs a GET request with the given headers, options and timeout.
--spec get(Url :: url(), Headers :: req_headers(), Opts :: gun_req_opts() | timeout()) ->
+-spec get(Url :: url(),
+          Headers :: req_headers(),
+          Opts :: pool_opts() | legacy_req_opts() | timeout()) ->
           resp().
 get(Url, Headers, Opts) when is_map(Opts) ->
     get(Url, Headers, Opts, infinity);
@@ -62,7 +71,7 @@ get(Url, Headers, Timeout) ->
 %% @doc Performs a GET request with the given headers, options, and timeout.
 -spec get(Url :: url(),
           Headers :: req_headers(),
-          Opts :: gun_req_opts(),
+          Opts :: pool_opts() | legacy_req_opts(),
           Timeout :: timeout()) ->
           resp().
 get(Url, Headers, Opts, Timeout) ->
@@ -85,7 +94,7 @@ post(Url, Headers, Body) ->
 -spec post(Url :: url(),
            Headers :: req_headers(),
            Body :: binary(),
-           Opts :: gun_req_opts() | timeout()) ->
+           Opts :: pool_opts() | legacy_req_opts() | timeout()) ->
           resp().
 post(Url, Headers, Body, Opts) when is_map(Opts) ->
     post(Url, Headers, Body, Opts, infinity);
@@ -97,7 +106,7 @@ post(Url, Headers, Body, Timeout) ->
 -spec post(Url :: url(),
            Headers :: req_headers(),
            Body :: binary(),
-           Opts :: gun_req_opts(),
+           Opts :: pool_opts() | legacy_req_opts(),
            Timeout :: timeout()) ->
           resp().
 post(Url, Headers, Body, Opts, Timeout) ->
@@ -111,13 +120,18 @@ post(Url, Headers, Body, Opts, Timeout) ->
               Url :: url(),
               Headers :: req_headers(),
               Body :: binary() | no_data,
-              Opts :: gun_req_opts(),
+              Opts :: pool_opts() | legacy_req_opts(),
               Timeout :: timeout()) ->
           resp().
 request(Method, Url, Headers, Body, Opts, Timeout) ->
     case honey_pool_uri:parse(Url) of
         {ok, U} ->
-            HostInfo = {U#uri.host, U#uri.port, U#uri.transport},
+            NormalizedOpts = normalize_pool_opts(Opts),
+            ConnOpts = maps:get(conn_opts, NormalizedOpts, #{}),
+            ReqOpts0 = maps:get(req_opts, NormalizedOpts, #{}),
+            LegacyReqOpts = maps:without([conn_opts, req_opts], NormalizedOpts),
+            ReqOpts = maps:merge(LegacyReqOpts, ReqOpts0),
+            HostInfo = {U#uri.host, U#uri.port, U#uri.transport, ConnOpts},
             {Elapsed, Checkout} = timer:tc(fun checkout/2, [HostInfo, Timeout]),
             case Checkout of
                 {ok, {ReturnTo, Conn}} ->
@@ -127,7 +141,7 @@ request(Method, Url, Headers, Body, Opts, Timeout) ->
                                    U#uri.pathquery,
                                    Headers,
                                    Body,
-                                   Opts,
+                                   ReqOpts,
                                    next_timeout(Timeout, Elapsed)),
                     handle_request_result(Result, ReturnTo, HostInfo, Conn, Method, Url);
                 {error, Reason} ->
@@ -179,6 +193,8 @@ do_request({Pid, MRef}, Method, Path, Headers, Body, Opts, Timeout) ->
                 case gun:await_body(Pid, StreamRef, TimeoutRemaining, MRef) of
                     {ok, RespBody} ->
                         {ok, {200, RespHeaders, RespBody}};
+                    {ok, RespBody, RespHeaders2} ->
+                        {ok, {200, lists:merge(RespHeaders2, RespHeaders), RespBody}};
                     {error, timeout} ->
                         {error, {timeout, await_body}};
                     {error, Reason} ->
@@ -231,6 +247,20 @@ next_timeout(Timeout, MicroSec) ->
             Timeout - Interval;
         _ ->
             0
+    end.
+
+
+%% @private
+%% @doc Normalizes options to pool_opts() format.
+%% Supports both the new pool_opts() format (with 'conn_opts'/'req_opts' keys) and
+%% the legacy gun:req_opts() map format. A map that does not contain either
+%% 'conn_opts' or 'req_opts' key is treated as a legacy gun:req_opts() value and
+%% is wrapped as #{req_opts => Opts}, preserving backward compatibility.
+-spec normalize_pool_opts(Opts :: pool_opts() | legacy_req_opts()) -> pool_opts().
+normalize_pool_opts(Opts) when is_map(Opts) ->
+    case maps:is_key(conn_opts, Opts) orelse maps:is_key(req_opts, Opts) of
+        true  -> Opts;
+        false -> #{req_opts => Opts}
     end.
 
 

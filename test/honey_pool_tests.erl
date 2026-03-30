@@ -4,6 +4,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-include("honey_pool.hrl").
+
 
 init(Req0, State) ->
     StatusCode = binary_to_integer(cowboy_req:binding(status_code, Req0)),
@@ -91,6 +93,41 @@ request_test_() ->
                            HttpsUrl = string:replace(Url, "http", "https", leading),
                            Actual = honey_pool:get(HttpsUrl, [], 10),
                            ?assertMatch({error, {checkout, {timeout, await_up}}}, Actual)
+                   end},
+                  {"get: with legacy req_opts map (backward compat)",
+                   fun() ->
+                           %% A plain gun:req_opts() map (no conn_opts/req_opts keys) should
+                           %% be treated as legacy request opts rather than silently ignored.
+                           %% reply_to => self() is a valid gun req_opt and should be forwarded.
+                           LegacyOpts = #{reply_to => self()},
+                           Actual = honey_pool:get([Url, "/status/200/delay/50"], [], LegacyOpts, 1000),
+                           ?assertMatch({ok, {200, _, _}}, Actual)
+                   end},
+                  {"get: with explicit protocols",
+                   fun() ->
+                           %% For gun_tcp, gun expects exactly one protocol in the list.
+                           %% This verifies that the protocols option is handled and that
+                           %% different conn_opts values result in separate pooled connections.
+                           ConnOpts1 = #{conn_opts => #{protocols => [http], retry => 0}},
+                           ConnOpts2 = #{conn_opts => #{protocols => [http], retry => 1}},
+                           Actual1 = honey_pool:get([Url, "/status/200/delay/10"], [], ConnOpts1, 1000),
+                           ?assertMatch({ok, {200, _, _}}, Actual1),
+                           Actual2 = honey_pool:get([Url, "/status/200/delay/10"], [], ConnOpts2, 1000),
+                           ?assertMatch({ok, {200, _, _}}, Actual2),
+                           %% Verify that different conn_opts values are pooled separately
+                           {ok, #uri{port = Port}} = honey_pool_uri:parse(Url),
+                           Key1 = {"localhost", Port, tcp, #{protocols => [http], retry => 0}},
+                           Key2 = {"localhost", Port, tcp, #{protocols => [http], retry => 1}},
+                           States = honey_pool:dump_state(),
+                           CountConns =
+                               fun(Key, SList) ->
+                                       lists:foldl(fun(S, Acc) ->
+                                                           Pool = maps:get(pool_conns, S),
+                                                           Acc + length(maps:get(Key, Pool, []))
+                                                   end, 0, SList)
+                               end,
+                           ?assertEqual(1, CountConns(Key1, States)),
+                           ?assertEqual(1, CountConns(Key2, States))
                    end}],
              F = fun({Title, Test}) -> [{Title, Test}] end,
              lists:map(F, Cases)
