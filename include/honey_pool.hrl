@@ -17,7 +17,9 @@
           max_conns = infinity :: non_neg_integer() | infinity,  %% Maximum number of connections per worker.
           max_pending_conns = infinity :: non_neg_integer() | infinity,  %% Maximum number of pending (await_up) connections per worker.
           cur_conns = 0 :: non_neg_integer(),  %% Current number of total connections.
-          cur_pending_conns = 0 :: non_neg_integer()  %% Current number of pending connections.
+          cur_pending_conns = 0 :: non_neg_integer(),  %% Current number of pending connections.
+          pending_per_host = #{} :: #{hostinfo() => non_neg_integer()},  %% Per-host pending connection count.
+          min_conns = 0 :: non_neg_integer()  %% Minimum idle connections to maintain per host per worker.
          }).
 
 %% @doc Gun options for connection settings.

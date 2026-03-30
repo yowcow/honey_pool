@@ -3,6 +3,13 @@
 -export([get/1, get/2, get/3, get/4,
          post/2, post/3, post/4, post/5,
          request/6,
+         async_post/5,
+         async_request/6,
+         start_async_checkout/3,
+         fire_request/7,
+         parse_url/1,
+         checkin/3,
+         cleanup/1,
          return_to/3,
          dump_state/0,
          summarize_state/0]).
@@ -152,6 +159,60 @@ request(Method, Url, Headers, Body, Opts, Timeout) ->
     end.
 
 
+%% @doc Performs an async POST request.
+%% Fires the HTTP request and returns immediately. The calling process will receive
+%% gun_response / gun_data messages when the response arrives.
+-spec async_post(Url :: url(),
+                 Headers :: req_headers(),
+                 Body :: binary(),
+                 Opts :: gun_req_opts(),
+                 Timeout :: timeout()) ->
+          {ok,
+           #{stream_ref := reference(),
+             return_to := pid(),
+             host_info := hostinfo(),
+             conn := conn()}} |
+          {error, term()}.
+async_post(Url, Headers, Body, Opts, Timeout) ->
+    async_request(?METHOD_POST, Url, Headers, Body, Opts, Timeout).
+
+
+%% @doc Performs an async HTTP request.
+%% Fires the HTTP request and returns immediately. The calling process will receive
+%% gun_response / gun_data messages when the response arrives.
+-spec async_request(Method :: method(),
+                    Url :: url(),
+                    Headers :: req_headers(),
+                    Body :: binary() | no_data,
+                    Opts :: gun_req_opts(),
+                    Timeout :: timeout()) ->
+          {ok,
+           #{stream_ref := reference(),
+             return_to := pid(),
+             host_info := hostinfo(),
+             conn := conn()}} |
+          {error, term()}.
+async_request(Method, Url, Headers, Body, Opts, Timeout) ->
+    case honey_pool_uri:parse(Url) of
+        {ok, U} ->
+            HostInfo = {U#uri.host, U#uri.port, U#uri.transport},
+            case checkout(HostInfo, Timeout) of
+                {ok, {ReturnTo, {Pid, _MRef} = Conn}} ->
+                    ReqHeaders = headers(Headers),
+                    StreamRef = gun:request(Pid, Method, U#uri.pathquery, ReqHeaders, Body, Opts),
+                    {ok,
+                     #{stream_ref => StreamRef,
+                       return_to => ReturnTo,
+                       host_info => HostInfo,
+                       conn => Conn}};
+                {error, Reason} ->
+                    {error, {checkout, Reason}}
+            end;
+        {error, Reason} ->
+            {error, {uri, Reason}}
+    end.
+
+
 %% @private
 %% @doc Handles the result of a request, checking the connection back in or cleaning it up.
 handle_request_result({ok, {Status, _, _}} = Result,
@@ -250,6 +311,60 @@ next_timeout(Timeout, MicroSec) ->
     end.
 
 
+%% @doc Starts an async checkout for an already-parsed HostInfo.
+%% CallerPid will receive:
+%%   {checkout_result, Ref, {ok, {ReturnTo, HostInfo, GunPid}}} on success
+%%   {checkout_result, Ref, {error, Reason}}                    on failure
+-spec start_async_checkout(HostInfo :: hostinfo(), CallerPid :: pid(), Ref :: reference()) -> ok.
+start_async_checkout(HostInfo, CallerPid, Ref) ->
+    wpool:cast(?WORKER, {async_checkout, HostInfo, CallerPid, Ref}, worker_strategy(HostInfo)).
+
+
+%% @doc Fires an HTTP request on an already checked-out gun connection.
+%% Url is used only for debug logging; PathQuery is what is sent over the wire.
+%% Returns the gun stream reference.
+-spec fire_request(Method :: method(),
+                   Url :: url(),
+                   PathQuery :: string(),
+                   Headers :: req_headers(),
+                   Body :: binary() | no_data,
+                   Opts :: gun_req_opts(),
+                   GunPid :: pid()) -> reference().
+fire_request(Method, Url, PathQuery, Headers, Body, Opts, GunPid) ->
+    ReqHeaders = headers(Headers),
+    ?LOG_DEBUG("(~p) (conn: ~p) ~p ~p", [self(), GunPid, Method, Url]),
+    gun:request(GunPid, Method, PathQuery, ReqHeaders, Body, Opts).
+
+
+%% @doc Parses a URL and returns HostInfo and PathQuery.
+-spec parse_url(Url :: url()) ->
+          {ok, #{host_info := hostinfo(), path_query := string()}} | {error, term()}.
+parse_url(Url) ->
+    case honey_pool_uri:parse(Url) of
+        {ok, U} ->
+            {ok, #{
+               host_info => {U#uri.host, U#uri.port, U#uri.transport},
+               path_query => U#uri.pathquery
+              }};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+
+%% @private
+%% @doc Returns the wpool worker routing strategy.
+%% Defaults to `best_worker` for backward compatibility.
+%% Set `{honey_pool, worker_strategy, hash_worker}` in sys.config to use
+%% `hash_worker` instead, which improves connection pool affinity by routing
+%% all operations for the same host to the same worker.
+-spec worker_strategy(HostInfo :: hostinfo()) -> wpool:strategy().
+worker_strategy(HostInfo) ->
+    case application:get_env(honey_pool, worker_strategy, best_worker) of
+        hash_worker -> {hash_worker, HostInfo};
+        best_worker -> best_worker
+    end.
+
+
 %% @private
 %% @doc Normalizes options to pool_opts() format.
 %% Supports both the new pool_opts() format (with 'conn_opts'/'req_opts' keys) and
@@ -269,34 +384,43 @@ normalize_pool_opts(Opts) when is_map(Opts) ->
 -spec checkout(HostInfo :: hostinfo(), Timeout :: timeout()) ->
           {ok, {ReturnTo :: pid(), Conn :: conn()}} | {error, Reason :: term()}.
 checkout(HostInfo, Timeout) ->
-    {Elapsed, Result} =
-        timer:tc(fun wpool:call/4, [?WORKER, {checkout, HostInfo}, best_worker, Timeout]),
-    try Result of
-        {ok, {await_up, {ReturnTo, Pid}}} ->
-            MRef = monitor(process, Pid),
-            TimeoutRemaining = next_timeout(Timeout, Elapsed),
-            case gun:await_up(Pid, TimeoutRemaining, MRef) of
-                {ok, _} ->
-                    {ok, {ReturnTo, {Pid, MRef}}};
-                {error, timeout} ->
-                    %% even on timeout, let gun continue for the future use
-                    cancel_await_up(ReturnTo, {Pid, MRef}),
-                    {error, {timeout, await_up}};
-                {error, Reason} ->
-                    cleanup({Pid, MRef}),
-                    {error, {await_up, Reason}}
-            end;
-        {ok, {up, {ReturnTo, Pid}}} ->
-            {ok, {ReturnTo, {Pid, monitor(process, Pid)}}};
-        {error, {limit, _} = Reason} ->
-            %% Unwrap limit errors for direct pattern matching
-            {error, Reason};
+    T0 = erlang:monotonic_time(microsecond),
+    Result =
+        try
+            wpool:call(?WORKER, {checkout, HostInfo}, worker_strategy(HostInfo), Timeout)
+        catch
+            exit:{timeout, _} -> timeout
+        end,
+    Elapsed = erlang:monotonic_time(microsecond) - T0,
+    handle_checkout_result(Result, Timeout, Elapsed).
+
+
+%% @private
+-spec handle_checkout_result(Result :: term(), Timeout :: timeout(), ElapsedMicro :: integer()) ->
+          {ok, {ReturnTo :: pid(), Conn :: conn()}} | {error, Reason :: term()}.
+handle_checkout_result({ok, {await_up, {ReturnTo, Pid}}}, Timeout, Elapsed) ->
+    MRef = monitor(process, Pid),
+    TimeoutRemaining = next_timeout(Timeout, Elapsed),
+    case gun:await_up(Pid, TimeoutRemaining, MRef) of
+        {ok, _} ->
+            {ok, {ReturnTo, {Pid, MRef}}};
+        {error, timeout} ->
+            %% even on timeout, let gun continue for the future use
+            cancel_await_up(ReturnTo, {Pid, MRef}),
+            {error, {timeout, await_up}};
         {error, Reason} ->
-            {error, {pool_checkout, Reason}}
-    catch
-        _:Err ->
-            {error, {checkout, Err}}
-    end.
+            cleanup({Pid, MRef}),
+            {error, {await_up, Reason}}
+    end;
+handle_checkout_result({ok, {up, {ReturnTo, Pid}}}, _Timeout, _Elapsed) ->
+    {ok, {ReturnTo, {Pid, monitor(process, Pid)}}};
+handle_checkout_result({error, {limit, _} = Reason}, _Timeout, _Elapsed) ->
+    %% Unwrap limit errors for direct pattern matching
+    {error, Reason};
+handle_checkout_result({error, Reason}, _Timeout, _Elapsed) ->
+    {error, {pool_checkout, Reason}};
+handle_checkout_result(timeout, _Timeout, _Elapsed) ->
+    {error, {timeout, checkout}}.
 
 
 %% @private
@@ -307,7 +431,6 @@ cancel_await_up(ReturnTo, {Pid, MRef}) ->
     return_to(ReturnTo, Pid, {cancel_await_up, Pid}).
 
 
-%% @private
 %% @doc Returns a connection to the pool.
 -spec checkin(ReturnTo :: pid(), HostInfo :: hostinfo(), Conn :: conn()) -> ok.
 checkin(ReturnTo, HostInfo, {Pid, MRef}) ->
@@ -315,7 +438,6 @@ checkin(ReturnTo, HostInfo, {Pid, MRef}) ->
     return_to(ReturnTo, Pid, {checkin, HostInfo, Pid}).
 
 
-%% @private
 %% @doc Cleans up a connection by closing it.
 -spec cleanup(Conn :: conn()) -> ok.
 cleanup({Pid, MRef}) ->

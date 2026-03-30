@@ -31,7 +31,7 @@
           timer_ref :: timer_ref()
          }).
 
--type requester() :: pid() | undefined.
+-type requester() :: pid() | {pid(), reference()} | undefined.
 -type timer_ref() :: reference() | undefined.
 
 %% @doc Callback functions for the honey_pool_worker gen_server.
@@ -50,7 +50,8 @@ init(Args) ->
        idle_timeout = maps:get(idle_timeout, Opts, infinity),
        await_up_timeout = maps:get(await_up_timeout, Opts, 5000),
        max_conns = maps:get(max_conns, Opts, infinity),
-       max_pending_conns = maps:get(max_pending_conns, Opts, infinity)
+       max_pending_conns = maps:get(max_pending_conns, Opts, infinity),
+       min_conns = maps:get(min_conns, Opts, 0)
       }}.
 
 
@@ -99,6 +100,21 @@ handle_cast({checkin, HostInfo, Pid} = Req, State) ->
 handle_cast({cancel_await_up, Pid} = Req, State) ->
     {Result, NewState} = conn_cancel_await_up(Pid, State),
     ?LOG_DEBUG("(~p) handle_cast (~p) -> ~p", [self(), Req, Result]),
+    {noreply, NewState};
+%% Async checkout: caller receives {checkout_result, Ref, {ok, {ReturnTo, HostInfo, GunPid}}}
+%% or {checkout_result, Ref, {error, Reason}} when checkout completes.
+%% For the await_up case, conn_up/3 will deliver the notification when gun_up arrives.
+handle_cast({async_checkout, HostInfo, CallerPid, Ref} = Req, State) ->
+    {Result, NewState} = conn_checkout(HostInfo, {CallerPid, Ref}, State),
+    ?LOG_DEBUG("(~p) handle_cast (~p) -> ~p", [self(), Req, Result]),
+    case Result of
+        {ok, {up, {ReturnTo, Pid}}} ->
+            CallerPid ! {checkout_result, Ref, {ok, {ReturnTo, HostInfo, Pid}}};
+        {ok, {await_up, _}} ->
+            ok;  %% conn_up/3 will notify when gun_up arrives
+        {error, Reason} ->
+            CallerPid ! {checkout_result, Ref, {error, Reason}}
+    end,
     {noreply, NewState};
 handle_cast(Req, State) ->
     ?LOG_WARNING("(~p) unhandled cast (~p, ~p)", [self(), Req, State]),
@@ -175,7 +191,8 @@ conn_checkout(HostInfo, Requester, #state{tabid = TabId} = State) ->
                 no_available_worker ->
                     conn_open_with_returnto(HostInfo, Requester, State);
                 {ok, {Status, Pid}} ->
-                    {{ok, {Status, {self(), Pid}}}, State}
+                    NewState = maintain_min_conns(HostInfo, State),
+                    {{ok, {Status, {self(), Pid}}}, NewState}
             end
     end.
 
@@ -206,6 +223,7 @@ checkout_from_pool(HostInfo, Requester, [Pid | Pids], #state{tabid = TabId} = St
             checkout_from_pool(HostInfo, Requester, Pids, State);
         [{_, Conn}] ->
             ets:insert(TabId, {{pool, HostInfo}, Pids}),
+            ets:update_counter(TabId, {pool_size, HostInfo}, {2, -1, 0, 0}, {{pool_size, HostInfo}, 0}),
             cancel_idle_timer(Conn#conn.timer_ref),
             ets:insert(TabId, {{pid, Pid}, Conn#conn{state = checked_out, timer_ref = undefined}}),
             {ok, {up, Pid}}
@@ -228,7 +246,8 @@ conn_open({Host, Port, Transport, ConnOpts},
             gun_opts = DefaultGunOpts,
             tabid = TabId,
             cur_conns = CurConns,
-            cur_pending_conns = CurPending
+            cur_pending_conns = CurPending,
+            pending_per_host = PendingPerHost
            } = State) ->
     MergedGunOpts = maps:merge(DefaultGunOpts, ConnOpts),
     GunOptsWithTransport = MergedGunOpts#{transport => Transport},
@@ -246,7 +265,10 @@ conn_open({Host, Port, Transport, ConnOpts},
             {{ok, {await_up, Pid}},
              State#state{
                cur_conns = CurConns + 1,
-               cur_pending_conns = CurPending + 1
+               cur_pending_conns = CurPending + 1,
+               pending_per_host = PendingPerHost#{
+                   HostInfo => maps:get(HostInfo, PendingPerHost, 0) + 1
+               }
               }};
         {error, Reason} ->
             {{error, {gun_open, Reason}}, State}
@@ -281,6 +303,7 @@ conn_cancel_await_up(Pid,
 
 %% @private
 %% @doc Adds a PID to the pool for the given HostInfo.
+%% Callers must ensure the PID is not already in checked_in state to avoid duplicates.
 -spec add_to_pool(TabId :: ets:tid(), HostInfo :: hostinfo(), Pid :: pid()) -> ok.
 add_to_pool(TabId, HostInfo, Pid) ->
     PidsToPool =
@@ -288,14 +311,10 @@ add_to_pool(TabId, HostInfo, Pid) ->
             [] ->
                 [Pid];
             [{_, Pids}] ->
-                case lists:member(Pid, Pids) of
-                    true ->
-                        Pids;
-                    false ->
-                        [Pid | Pids]
-                end
+                [Pid | Pids]
         end,
     ets:insert(TabId, {{pool, HostInfo}, PidsToPool}),
+    ets:update_counter(TabId, {pool_size, HostInfo}, {2, 1}, {{pool_size, HostInfo}, 0}),
     ok.
 
 
@@ -329,7 +348,13 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout, cu
             cancel_idle_timer(OldConn#conn.timer_ref),
             Conn = OldConn#conn{state = checked_in, timer_ref = idle_timer(Pid, IdleTimeout)},
             ets:insert(TabId, {{pid, Pid}, Conn}),
-            add_to_pool(TabId, HostInfo, Pid),
+            case OldConn#conn.state of
+                checked_in ->
+                    %% Already in pool (e.g. double-checkin), skip to avoid duplicate
+                    ok;
+                _ ->
+                    add_to_pool(TabId, HostInfo, Pid)
+            end,
             {{ok, {HostInfo, Pid}}, State}
     end.
 
@@ -337,21 +362,33 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout, cu
 %% @private
 %% @doc Handles the `gun_up` message, indicating a connection is ready.
 -spec conn_up(pid(), tcp | tls, state()) -> {{ok, term()}, state()}.
-conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending} = State) ->
+conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending, pending_per_host = PendingPerHost} = State) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [{_, Conn}] ->
-            %% Only decrement cur_pending_conns if connection is in await_up state
+            %% Only decrement pending counts if connection is in await_up state
             State1 = case Conn#conn.state of
-                         await_up -> State#state{cur_pending_conns = CurPending - 1};
+                         await_up ->
+                             HostInfo = Conn#conn.hostinfo,
+                             NewPPH = PendingPerHost#{
+                                 HostInfo => max(0, maps:get(HostInfo, PendingPerHost, 0) - 1)
+                             },
+                             State#state{cur_pending_conns = CurPending - 1, pending_per_host = NewPPH};
                          _ -> State
                      end,
             case Conn#conn.requester of
                 undefined ->
-                    %% requester has canceled -> just keep pid in the pool
+                    %% requester has canceled (or min_conns proactive open) -> keep in pool
                     cancel_idle_timer(Conn#conn.timer_ref),
                     conn_checkin(Conn#conn.hostinfo, Pid, State1);
-                Requester ->
-                    %% notify requester and tag that conn is checked out
+                {CallerPid, Ref} ->
+                    %% async checkout: notify caller with checkout_result
+                    cancel_idle_timer(Conn#conn.timer_ref),
+                    CallerPid ! {checkout_result, Ref, {ok, {self(), Conn#conn.hostinfo, Pid}}},
+                    ets:insert(TabId,
+                               {{pid, Pid}, Conn#conn{state = checked_out, requester = undefined}}),
+                    {{ok, {Conn#conn.hostinfo, Pid}}, State1};
+                Requester when is_pid(Requester) ->
+                    %% sync checkout: gun:await_up/3 in caller is waiting for {gun_up, ...}
                     cancel_idle_timer(Conn#conn.timer_ref),
                     Requester ! {gun_up, Pid, Protocol},
                     ets:insert(TabId,
@@ -369,26 +406,37 @@ conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending} = S
 %% @private
 %% @doc Handles the `gun_down` message, indicating a connection has been lost.
 -spec conn_down(pid(), state()) -> {{ok, term()}, state()}.
-conn_down(Pid, #state{tabid = TabId, cur_conns = CurConns, cur_pending_conns = CurPending} = State) ->
+conn_down(Pid, #state{tabid = TabId, cur_conns = CurConns, cur_pending_conns = CurPending, pending_per_host = PendingPerHost} = State) ->
     case ets:take(TabId, {pid, Pid}) of
         [{_, Conn}] ->
             HostInfo = Conn#conn.hostinfo,
             demonitor(Conn#conn.monitor_ref, [flush]),
             cancel_idle_timer(Conn#conn.timer_ref),
-            case ets:lookup(TabId, {pool, HostInfo}) of
-                [{_, Pids}] ->
-                    ets:insert(TabId, {{pool, HostInfo}, [ P || P <- Pids, P =/= Pid ]});
+            case Conn#conn.state of
+                checked_in ->
+                    %% Remove from pool list and decrement pool_size counter
+                    case ets:lookup(TabId, {pool, HostInfo}) of
+                        [{_, Pids}] ->
+                            ets:insert(TabId, {{pool, HostInfo}, [ P || P <- Pids, P =/= Pid ]});
+                        _ ->
+                            ok
+                    end,
+                    ets:update_counter(TabId, {pool_size, HostInfo}, {2, -1, 0, 0}, {{pool_size, HostInfo}, 0});
                 _ ->
                     ok
             end,
             NewState =
                 case Conn#conn.state of
                     await_up ->
-                        State#state{cur_conns = CurConns - 1, cur_pending_conns = CurPending - 1};
+                        NewPPH = PendingPerHost#{
+                            HostInfo => max(0, maps:get(HostInfo, PendingPerHost, 0) - 1)
+                        },
+                        State#state{cur_conns = CurConns - 1, cur_pending_conns = CurPending - 1, pending_per_host = NewPPH};
                     _ ->
                         State#state{cur_conns = CurConns - 1}
                 end,
-            {{ok, {HostInfo, Pid}}, NewState};
+            FinalState = maintain_min_conns(HostInfo, NewState),
+            {{ok, {HostInfo, Pid}}, FinalState};
         _ ->
             %% Some servers close connections on the fly, and gun_down is fired before the conn checks-in.
             %% In that case, we just forget until checkin, and the monitor will detect noproc.
@@ -440,3 +488,35 @@ dump_state({{pool, HostInfo}, Pids}, #{pool_conns := M} = Acc) ->
     end;
 dump_state(_, Acc) ->
     Acc.
+
+
+%% @private
+%% @doc Ensures the pool for HostInfo has at least min_conns idle connections.
+%% Opens new connections with requester=undefined so they go directly to the
+%% pool via conn_up/3 when gun_up fires.
+-spec maintain_min_conns(hostinfo(), state()) -> state().
+maintain_min_conns(_HostInfo, #state{min_conns = 0} = State) ->
+    State;
+maintain_min_conns(HostInfo, #state{tabid = TabId, min_conns = MinConns, pending_per_host = PendingPerHost} = State) ->
+    %% O(1) pool size lookup via ETS counter (maintained by add_to_pool/checkout_from_pool/conn_down)
+    PoolSize =
+        case ets:lookup(TabId, {pool_size, HostInfo}) of
+            [{_, N}] -> N;
+            _ -> 0
+        end,
+    %% Use per-host pending count to avoid blocking replenishment of other hosts
+    %% on the same worker when they happen to hash to the same worker.
+    PendingForHost = maps:get(HostInfo, PendingPerHost, 0),
+    replenish_pool(HostInfo, max(0, MinConns - PoolSize - PendingForHost), State).
+
+%% @private
+-spec replenish_pool(hostinfo(), non_neg_integer(), state()) -> state().
+replenish_pool(_HostInfo, 0, State) ->
+    State;
+replenish_pool(HostInfo, N, State) ->
+    case conn_open(HostInfo, undefined, State) of
+        {{ok, {await_up, _}}, NewState} ->
+            replenish_pool(HostInfo, N - 1, NewState);
+        {_Error, State} ->
+            State
+    end.
