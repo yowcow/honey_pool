@@ -270,7 +270,7 @@ normalize_pool_opts(Opts) when is_map(Opts) ->
           {ok, {ReturnTo :: pid(), Conn :: conn()}} | {error, Reason :: term()}.
 checkout(HostInfo, Timeout) ->
     {Elapsed, Result} =
-        timer:tc(fun wpool:call/4, [?WORKER, {checkout, HostInfo}, best_worker, Timeout]),
+        timer:tc(fun wpool:call/4, [?WORKER, {checkout, HostInfo}, random_worker, Timeout]),
     try Result of
         {ok, {await_up, {ReturnTo, Pid}}} ->
             MRef = monitor(process, Pid),
