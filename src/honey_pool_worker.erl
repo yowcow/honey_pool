@@ -50,7 +50,8 @@ init(Args) ->
        idle_timeout = maps:get(idle_timeout, Opts, infinity),
        await_up_timeout = maps:get(await_up_timeout, Opts, 5000),
        max_conns = maps:get(max_conns, Opts, infinity),
-       max_pending_conns = maps:get(max_pending_conns, Opts, infinity)
+       max_pending_conns = maps:get(max_pending_conns, Opts, infinity),
+       lease_timeout = maps:get(lease_timeout, Opts, infinity)
       }}.
 
 
@@ -116,6 +117,11 @@ handle_info({idle_timeout, Pid} = Req, State) ->
     gun:close(Pid),
     ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
     {noreply, NewState};
+handle_info({lease_expired, Pid} = Req, State) ->
+    {Result, NewState} = conn_down(Pid, State),
+    gun:close(Pid),
+    ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
+    {noreply, NewState};
 handle_info({gun_up, Pid, Protocol} = Req, State) ->
     {Result, NewState} = conn_up(Pid, Protocol, State),
     ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
@@ -146,6 +152,15 @@ idle_timer(_Pid, infinity) ->
     undefined;
 idle_timer(Pid, Timeout) ->
     erlang:send_after(Timeout, self(), {idle_timeout, Pid}).
+
+
+%% @private
+%% @doc Starts a lease timer for checked-out connections.
+-spec lease_timer(Pid :: pid(), Timeout :: timeout()) -> timer_ref().
+lease_timer(_Pid, infinity) ->
+    undefined;
+lease_timer(Pid, Timeout) ->
+    erlang:send_after(Timeout, self(), {lease_expired, Pid}).
 
 
 %% @private
@@ -199,7 +214,7 @@ conn_open_with_returnto(HostInfo, Requester, State) ->
           {ok, {up, pid()}} | no_available_worker.
 checkout_from_pool(_HostInfo, _Requester, [], _State) ->
     no_available_worker;
-checkout_from_pool(HostInfo, Requester, [Pid | Pids], #state{tabid = TabId} = State) ->
+checkout_from_pool(HostInfo, Requester, [Pid | Pids], #state{tabid = TabId, lease_timeout = LeaseTimeout} = State) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [] ->
             %% Pid not in the table, try next one
@@ -207,7 +222,7 @@ checkout_from_pool(HostInfo, Requester, [Pid | Pids], #state{tabid = TabId} = St
         [{_, Conn}] ->
             ets:insert(TabId, {{pool, HostInfo}, Pids}),
             cancel_idle_timer(Conn#conn.timer_ref),
-            ets:insert(TabId, {{pid, Pid}, Conn#conn{state = checked_out, timer_ref = undefined}}),
+            ets:insert(TabId, {{pid, Pid}, Conn#conn{state = checked_out, timer_ref = lease_timer(Pid, LeaseTimeout)}}),
             {ok, {up, Pid}}
     end.
 
@@ -337,7 +352,7 @@ conn_checkin(HostInfo, Pid, #state{tabid = TabId, idle_timeout = IdleTimeout, cu
 %% @private
 %% @doc Handles the `gun_up` message, indicating a connection is ready.
 -spec conn_up(pid(), tcp | tls, state()) -> {{ok, term()}, state()}.
-conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending} = State) ->
+conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending, lease_timeout = LeaseTimeout} = State) ->
     case ets:lookup(TabId, {pid, Pid}) of
         [{_, Conn}] ->
             %% Only decrement cur_pending_conns if connection is in await_up state
@@ -355,7 +370,7 @@ conn_up(Pid, Protocol, #state{tabid = TabId, cur_pending_conns = CurPending} = S
                     cancel_idle_timer(Conn#conn.timer_ref),
                     Requester ! {gun_up, Pid, Protocol},
                     ets:insert(TabId,
-                               {{pid, Pid}, Conn#conn{state = checked_out, requester = undefined}}),
+                               {{pid, Pid}, Conn#conn{state = checked_out, requester = undefined, timer_ref = lease_timer(Pid, LeaseTimeout)}}),
                     {{ok, {Conn#conn.hostinfo, Pid}}, State1}
             end;
         _ ->
