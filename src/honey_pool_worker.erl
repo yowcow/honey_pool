@@ -117,11 +117,17 @@ handle_info({idle_timeout, Pid} = Req, State) ->
     gun:close(Pid),
     ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
     {noreply, NewState};
-handle_info({lease_expired, Pid} = Req, State) ->
-    {Result, NewState} = conn_down(Pid, State),
-    gun:close(Pid),
-    ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
-    {noreply, NewState};
+handle_info({lease_expired, Pid} = Req, #state{tabid = TabId} = State) ->
+    case ets:lookup(TabId, {pid, Pid}) of
+        [{_, #conn{state = checked_out}}] ->
+            {Result, NewState} = conn_down(Pid, State),
+            gun:close(Pid),
+            ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
+            {noreply, NewState};
+        _ ->
+            %% Already checked in or gone — stale timer, ignore
+            {noreply, State}
+    end;
 handle_info({gun_up, Pid, Protocol} = Req, State) ->
     {Result, NewState} = conn_up(Pid, Protocol, State),
     ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
