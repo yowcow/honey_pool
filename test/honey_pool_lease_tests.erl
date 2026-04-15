@@ -68,10 +68,14 @@ lease_expired_closes_checked_out_test_() ->
              State2 = gen_server:call(Worker, dump_state),
              [{"checked_out before lease expires",
                ?_assertEqual(1, maps:size(maps:get(checked_out_conns, State1)))},
-              {"connection closed after lease expires",
-               ?_assertEqual(0, maps:get(cur_conns, State2))},
+              {"connection returned to pool after lease expires",
+               ?_assertEqual(1, maps:get(cur_conns, State2))},
               {"checked_out is empty after lease expires",
-               ?_assertEqual(#{}, maps:get(checked_out_conns, State2))}]
+               ?_assertEqual(#{}, maps:get(checked_out_conns, State2))},
+              {"checked_in after lease expires",
+               ?_assertEqual(1, maps:size(maps:get(checked_in_conns, State2)))},
+              {"in pool after lease expires",
+               ?_assertEqual(1, maps:size(maps:get(pool_conns, State2)))}]
      end}.
 
 

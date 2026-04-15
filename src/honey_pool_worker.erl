@@ -119,9 +119,10 @@ handle_info({idle_timeout, Pid} = Req, State) ->
     {noreply, NewState};
 handle_info({lease_expired, Pid} = Req, #state{tabid = TabId} = State) ->
     case ets:lookup(TabId, {pid, Pid}) of
-        [{_, #conn{state = checked_out}}] ->
-            {Result, NewState} = conn_down(Pid, State),
-            gun:close(Pid),
+        [{_, #conn{state = checked_out, hostinfo = HostInfo}}] ->
+            %% Return connection to pool instead of closing it.
+            %% This avoids TLS re-establishment cost on next checkout.
+            {Result, NewState} = conn_checkin(HostInfo, Pid, State),
             ?LOG_DEBUG("(~p) handle_info (~p) -> ~p", [self(), Req, Result]),
             {noreply, NewState};
         _ ->
