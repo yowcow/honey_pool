@@ -39,6 +39,7 @@ init([]) ->
     AwaitUpTimeout = application:get_env(honey_pool, await_up_timeout, 5000),
     MaxConns = application:get_env(honey_pool, max_conns, infinity),
     MaxPendingConns = application:get_env(honey_pool, max_pending_conns, infinity),
+    LeaseTimeout = application:get_env(honey_pool, lease_timeout, infinity),
     WpoolUserConfig = application:get_env(honey_pool, wpool, []),
     WpoolDefaultConfig =
         #{
@@ -50,7 +51,8 @@ init([]) ->
                 {idle_timeout, IdleTimeout},
                 {await_up_timeout, AwaitUpTimeout},
                 {max_conns, MaxConns},
-                {max_pending_conns, MaxPendingConns}]}
+                {max_pending_conns, MaxPendingConns},
+                {lease_timeout, LeaseTimeout}]}
          },
     WpoolConfig =
         maps:to_list(

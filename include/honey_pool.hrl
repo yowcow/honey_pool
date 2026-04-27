@@ -17,7 +17,8 @@
           max_conns = infinity :: non_neg_integer() | infinity,  %% Maximum number of connections per worker.
           max_pending_conns = infinity :: non_neg_integer() | infinity,  %% Maximum number of pending (await_up) connections per worker.
           cur_conns = 0 :: non_neg_integer(),  %% Current number of total connections.
-          cur_pending_conns = 0 :: non_neg_integer()  %% Current number of pending connections.
+          cur_pending_conns = 0 :: non_neg_integer(),  %% Current number of pending connections.
+          lease_timeout = infinity :: timeout()  %% Maximum time a connection can stay checked out before being forcibly closed.
          }).
 
 %% @doc Gun options for connection settings.
