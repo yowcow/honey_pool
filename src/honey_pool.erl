@@ -265,12 +265,22 @@ normalize_pool_opts(Opts) when is_map(Opts) ->
 
 
 %% @private
+%% @doc Returns the wpool routing strategy from application env.
+%% Defaults to `best_worker` which routes to the worker with the shortest
+%% message queue, preventing request pile-up on a single stuck worker.
+%% Set `{worker_strategy, random_worker}` in sys.config to use random routing.
+-spec worker_strategy() -> wpool:strategy().
+worker_strategy() ->
+    application:get_env(honey_pool, worker_strategy, best_worker).
+
+
+%% @private
 %% @doc Checks out a connection from the worker pool.
 -spec checkout(HostInfo :: hostinfo(), Timeout :: timeout()) ->
           {ok, {ReturnTo :: pid(), Conn :: conn()}} | {error, Reason :: term()}.
 checkout(HostInfo, Timeout) ->
     {Elapsed, Result} =
-        timer:tc(fun wpool:call/4, [?WORKER, {checkout, HostInfo}, random_worker, Timeout]),
+        timer:tc(fun wpool:call/4, [?WORKER, {checkout, HostInfo}, worker_strategy(), Timeout]),
     try Result of
         {ok, {await_up, {ReturnTo, Pid}}} ->
             MRef = monitor(process, Pid),
