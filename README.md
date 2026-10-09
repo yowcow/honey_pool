@@ -92,7 +92,7 @@ Configure `honey_pool` in your `sys.config` file:
 
 ### gun options
 
-`gun_opts` is merged into honey_pool's defaults with a top-level `maps:merge/2`, so a key you set replaces the default for that key as a whole. The defaults are:
+`gun_opts` is merged into honey_pool's defaults with a top-level `maps:merge/2`, so a key you set replaces the default for that key as a whole. Per-request `conn_opts` is then merged on top of that result the same way, so an `http_opts` map in `conn_opts` replaces the whole `http_opts` from `gun_opts`, including any `keepalive`. The defaults are:
 
 - `retry => 0`
 - `connect_timeout => 1000`
