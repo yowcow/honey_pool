@@ -83,9 +83,25 @@ Configure `honey_pool` in your `sys.config` file:
                       ]},
 
               %% gun configurations (see gun documentation for details)
-              {gun_opt, #{
+              {gun_opts, #{
                           retry => 0,          %% Let go dead connections.
                           connect_timeout => 1000 %% Give up connecting after 1000 msec.
                          }}
              ]}
+```
+
+### gun options
+
+`gun_opts` is merged into honey_pool's defaults with a top-level `maps:merge/2`, so a key you set replaces the default for that key as a whole. The defaults are:
+
+- `retry => 0`
+- `connect_timeout => 1000`
+
+Keepalive is **off by default** (gun's default is `infinity`). To turn it on, set it in `http_opts` (HTTP/1.1) and/or `http2_opts` (HTTP/2):
+
+```erlang
+{gun_opts, #{
+             http_opts => #{keepalive => 30000},  %% Bare CRLF between requests on HTTP/1.1.
+             http2_opts => #{keepalive => 30000}  %% PING frames on HTTP/2.
+            }}
 ```
