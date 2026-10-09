@@ -3,6 +3,7 @@
 -export([init/2]).
 
 -include_lib("eunit/include/eunit.hrl").
+-include("honey_pool.hrl").
 
 -define(LISTENER, honey_pool_worker_test_listener).
 
@@ -207,3 +208,18 @@ checkout_checkin_test_() ->
                  end,
              lists:map(F, Cases)
      end}.
+
+
+init_no_default_keepalive_test() ->
+    {ok, State} = honey_pool_worker:init([]),
+    GunOpts = State#state.gun_opts,
+    ?assertEqual(#{retry => 0, connect_timeout => 1000}, GunOpts).
+
+
+init_keeps_explicit_keepalive_test() ->
+    Given = #{http_opts => #{keepalive => 1234},
+              http2_opts => #{keepalive => 5678}},
+    {ok, State} = honey_pool_worker:init([{gun_opts, Given}]),
+    GunOpts = State#state.gun_opts,
+    ?assertEqual(#{keepalive => 1234}, maps:get(http_opts, GunOpts)),
+    ?assertEqual(#{keepalive => 5678}, maps:get(http2_opts, GunOpts)).
